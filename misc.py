@@ -18,10 +18,11 @@ def choose(n, k):
 
 
 
-def prod(numbers, m=float('inf')):
+def prod(numbers, mod=None):
     """
     Recursive algorithm to calculate the product of multiple numbers (mod m).
     """
+    numbers = tuple(numbers)
     N = len(numbers)
 
     if N == 0:
@@ -31,13 +32,9 @@ def prod(numbers, m=float('inf')):
         result = numbers[0]
 
     else:
-        result = prod(numbers[:N//2], m=m) * prod(numbers[N//2:], m=m)
+        result = prod(numbers[:N//2], mod=mod) * prod(numbers[N//2:], mod=mod)
 
-    if all(isinstance(n, int) for n in numbers):
-        return int(result % m)
-    
-    return result
-
+    return result if mod is None else result % mod
 
 def lcm(*numbers):
     """

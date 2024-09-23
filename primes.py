@@ -3,6 +3,8 @@ import itertools
 import math
 import random
 
+from functools import cache
+
 
 
 ### Primality Testing
@@ -22,7 +24,7 @@ def miller_rabin_test(n, r, d, a=2):
 
     return False
 
-
+@cache
 def is_prime(n, k=20):
     """
     Miller-Rabin primality test with k rounds of testing.
@@ -66,7 +68,6 @@ def pollard_rho(n):
     
     return d
 
-
 def brent(n):
     """
     Brent's factorization method. Returns an integer factor.
@@ -79,12 +80,12 @@ def brent(n):
 
     while G == 1:
         x = y
-        for i in range(r):
+        for _ in range(r):
             y = f(y)
         k = 0
         while (k < r and G == 1):
             ys = y
-            for i in range(min(m, r - k)):
+            for _ in range(min(m, r - k)):
                 y = f(y)
                 q = (q * abs(x - y)) % n
             G = math.gcd(q, n)
@@ -99,13 +100,13 @@ def brent(n):
 
     return G
 
-
-def prime_factors(n, return_counts=False):
+@cache
+def get_prime_factors(n, return_counts=False):
     """
     Gets a list of prime factors (nonunique).
     """
     if return_counts:
-        return collections.Counter(prime_factors(n, return_counts=False))
+        return collections.Counter(get_prime_factors(n, return_counts=False))
 
     if n == 1:
         return []
@@ -114,11 +115,10 @@ def prime_factors(n, return_counts=False):
         return [n]
 
     factor = brent(n)
-    return prime_factors(factor) + prime_factors(n // factor)
-
+    return get_prime_factors(factor) + get_prime_factors(n // factor)
 
 def divisors(n):
-    factors = prime_factors(n, return_counts=True)
+    factors = get_prime_factors(n, return_counts=True)
     div = [1]
 
     for p, r in factors.items():
@@ -145,8 +145,14 @@ def sieve(n):
     return list(itertools.compress(range(len(prime)), prime))
 
 
-#import cProfile
-#cProfile.run('sieve(100000000)')
-#print(len(sieve(int(10**6))))
 
-    
+
+
+
+
+def totient(n):
+    """
+    Compute Euler's totient function φ(n) for an integer n.
+    """
+    prime_factors = get_prime_factors(n, return_counts=True)
+    return math.prod(p**(k - 1) * (p - 1) for p, k in prime_factors.items())
