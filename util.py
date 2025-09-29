@@ -686,7 +686,7 @@ def hensel(
 
         solutions.add(x0 % p**k)
     
-    return solutions
+    yield from solutions
 
 
 
