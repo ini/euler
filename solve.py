@@ -1,20 +1,20 @@
-import functools
+import euler as e
 import itertools
 import math
 import string
-import util
 
-from collections import Counter, defaultdict
+from collections import Counter, defaultdict, deque
 from functools import cache
 from heapq import heappop, heappush
-from itertools import combinations, permutations
+from itertools import combinations, combinations_with_replacement, islice, permutations
 from math import ceil, comb, factorial, floor, gcd, isqrt, lcm, log, prod, sqrt
 
 
 
-def problem_1(N=1000, divisors=(3, 5)):
+def problem_1(N=1000, factors=(3, 5)):
     """
-    Find the sum of all multiples below N of any of the given divisors.
+    Find the sum of all natural numbers below N that are divisible
+    by any of the given factors.
 
     Notes
     -----
@@ -22,34 +22,35 @@ def problem_1(N=1000, divisors=(3, 5)):
     where T_n is the n-th triangular number.
 
     From there we can use the principle of inclusion-exclusion to find the sum
-    of all multiples of the given divisors below N.
+    of all multiples of the given factors below N.
     """
-    sum_of_multiples = lambda k: k * util.polygonal(3, (N - 1) // k)
+    factors = set(factors)
+    sum_of_multiples = lambda k: k * e.triangle((N - 1) // k)
     return sum(
         (-1)**(i + 1) * sum_of_multiples(lcm(*subset))
-        for i in range(1, len(divisors) + 1)
-        for subset in itertools.combinations(divisors, i)
+        for i in range(1, len(factors) + 1)
+        for subset in combinations(factors, i)
     )
 
-def problem_2(N=int(4e6)):
+def problem_2(N=4_000_000):
     """
-    Find the sum of all even Fibonacci numbers below N.
+    Find the sum of all even Fibonacci numbers less than or equal to N.
 
     Notes
     -----
     F(n) is even if and only if n is a multiple of 3.
     The sum of F(3i) from i = 1 ... n = (F(3n+2) - 1) / 2.
     """
-    n = int(util.fibonacci_index(N - 1)) // 3
-    return (util.fibonacci(3*n + 2) - 1) // 2
+    n = e.fibonacci_index(N) // 3
+    return (e.fibonacci(3*n + 2) - 1) // 2
 
 def problem_3(n=600851475143):
     """
     Find the largest prime factor of n.
     """
-    return max(util.prime_factors(n))
+    return max(e.prime_factors(n))
 
-def problem_4(n=3, num_leading_nines=None):
+def problem_4(n=3):
     """
     Find the largest palindrome that is the product of two n-digit numbers.
 
@@ -64,73 +65,80 @@ def problem_4(n=3, num_leading_nines=None):
         * xy = -1 mod 10^k (since xy ends with k 9s)
         * one of x, y is divisible by 11 (xy is a palindrome with even # of digits)
 
-    We use the heuristic lower bound k = ⌊n / 2⌋ (provably holds when n is even).
+    We use the heuristic lower bound k = ⌊n/2⌋ (provably holds when n is even).
     """
-    # Special case
-    if n == 1:
-        return 9
+    k = n // 2 # lower bound on # of leading / trailing 9s
+    best_palindrome = None if n != 1 else 9
+    while best_palindrome is None and k > 0:
+        mod = 10**k # modulus for finding modular inverse
+        min_palindrome = 10**(2*n) - 10**(2*n-k) + 10**k - 1 # starts & ends with k 9s
+        max_factor = 10**n - 1 # largest n-digit number
 
-    best_palindrome = None
-    k = num_leading_nines or n // 2 # lower bound on # of leading / trailing 9s
-    mod = 10**k # modulus for finding modular inverse
-    min_palindrome = 10**(2*n) - 10**(2*n-k) + 10**k - 1 # starts & ends with k 9s
-    max_factor = 10**n - 1 # largest n-digit number
+        # Iterate x over odd multiples of 11
+        x_min = min_palindrome // max_factor
+        x_max = ((max_factor - 11) // 22) * 22 + 11 # round down to odd multiple of 11
+        for x in range(x_max, x_min - 1, -22):
+            # Find modular inverse of x mod 10^k
+            if x % 5 == 0: continue # no inverse exists if gcd(x, 10^k) != 1
+            else: x_inv = pow(x, -1, mod=mod)
 
-    # Iterate x over odd multiples of 11
-    x_min = min_palindrome // max_factor
-    x_max = util.round_down(max_factor - 11, 22) + 11
-    for x in range(x_max, x_min - 1, -22):
-        # Find modular inverse of x mod 10^k
-        if x % 5 == 0:
-            continue # no inverse exists if gcd(x, 10^k) != 1
-        else:
-            x_inv = pow(x, -1, mod=mod)
+            # Iterate over y such that xy = -1 mod 10^k (i.e. xy ends with k 9s)
+            y_min = (best_palindrome or min_palindrome) // x
+            y_max = max_factor + 1 - x_inv
+            for y in range(y_max, y_min - 1, -mod):
+                if e.is_palindrome(product := x * y):
+                    best_palindrome = product
+                    break
 
-        # Iterate y over integers such that xy = -1 mod 10^k (i.e. xy ends with k 9s)
-        y_min = (best_palindrome or min_palindrome) // x
-        y_max = max_factor + 1 - x_inv
-        for y in range(y_max, y_min - 1, -mod):
-            if util.is_palindrome(product := x * y):
-                best_palindrome = product
+            if x * max_factor < (best_palindrome or min_palindrome):
                 break
 
-        if x * max_factor < (best_palindrome or min_palindrome):
-            break
+        k -= 1
 
-    if best_palindrome is None and k > 0:
-        return problem_4(n, num_leading_nines=k-1)
-    else:
-        return best_palindrome
+    return best_palindrome
 
-def problem_5(n=20):
+def problem_5(N=20):
     """
-    Find the smallest number that is evenly divisible by all numbers from 1 to n.
+    Find the smallest number that is evenly divisible by all numbers from 1 to N.
 
     Notes
     -----
-    LCM(1, ... n) = product of p^⌊log_p(n)⌋ for p <= n.
+    LCM(1, ... N) = product of p^⌊log_p(N)⌋ for p <= N.
     """
-    return prod(p**int(log(n, p)) for p in util.primes(high=n))
+    return prod(p**e.ilog(N, p) for p in e.primes(high=N))
 
-def problem_6(n=100):
+def problem_6(N=100):
     """
-    Find the difference (1 + 2 + ... + n)^2 - (1^2 + 2^2 + ... + n^2).
+    Find the difference (1 + 2 + ... + N)^2 - (1^2 + 2^2 + ... + N^2).
 
     Notes
     -----
     We can apply Faulhaber's formula for k = 1 and k = 2.
-    The sum of the first n natural numbers is n * (n + 1) / 2.
-    The sum of the first n squares is n * (n + 1) * (2n + 1) / 6.
+    The sum of the first N natural numbers is N * (N + 1) / 2.
+    The sum of the first N squares is N * (N + 1) * (2N + 1) / 6.
     """
-    square_of_sums = (n * (n + 1) // 2) ** 2
-    sum_of_squares = n * (n + 1) * (2*n + 1) // 6
+    square_of_sums = (N * (N + 1) // 2) ** 2
+    sum_of_squares = N * (N + 1) * (2*N + 1) // 6
     return square_of_sums - sum_of_squares
 
 def problem_7(n=10001):
     """
     Find the n-th prime number.
+
+    Notes
+    -----
+    For all n >= 6, the n-th prime p_n satisfies the following bounds:
+
+        n(log(n) + log(log(n)) - 1) < p_n < n(log(n) + log(log(n)))
+
+    We can find p_n via binary search with the prime counting function π(x),
+    which is asymptotically faster than sieving all primes up to p_n for large n.
     """
-    return list(util.primes(num=n))[-1]
+    if n < 6:
+        return (2, 3, 5, 7, 11)[n - 1]
+
+    low, high = int(n * (log(n) + log(log(n)) - 1)), int(n * (log(n) + log(log(n))))
+    return e.binary_search(e.count_primes, threshold=n, low=low, high=high)
 
 def problem_8(n=13, path='data/problem_8.txt'):
     """
@@ -165,24 +173,30 @@ def problem_9(n=1000):
     we have n = ka + kb + kc = 2kx(x + y), with x, y satisfying the above conditions.
 
     This implies that n must be even, and x, (x + y) must be factors of n/2.
+    We can also infer additional bounds x > 1 and (x + y) < n/2.
     """
     if n % 2 != 0:
         return None
 
-    factors = sorted(util.divisors(n // 2))
-    for i in range(1, len(factors) // 2):
-        for j in range(i + 1, len(factors) - 1):
+    # Iterate over divisor pairs, where factors[i] = x and factors[j] = x + y
+    factors = sorted(e.divisors(n // 2))
+    for i in range(1, len(factors) // 2): # x > 1
+        for j in range(i + 1, len(factors) - 1): # (x + y) < n/2
             x, y = factors[i], factors[j] - factors[i]
-            if x > y and (x + y) % 2 == 1 and gcd(x, y) == 1: # primitive conditions
-                a, b, c = x*x - y*y, 2*x*y, x*x + y*y # primitive triple
+            if x <= y:
+                break
+
+            # Check for primitive conditions
+            if (x + y) % 2 == 1 and gcd(x, y) == 1:
+                a, b, c = x*x - y*y, 2*x*y, x*x + y*y
                 k = n // (a + b + c)
                 return k*a * k*b * k*c
 
-def problem_10(N=int(2e6)):
+def problem_10(N=2_000_000):
     """
     Find the sum of all primes below N.
     """
-    return sum(util.primes(high=N-1))
+    return e.sum_primes(N - 1)
 
 def problem_11(n=4, path='data/problem_11.txt'):
     """
@@ -209,7 +223,7 @@ def problem_11(n=4, path='data/problem_11.txt'):
     return max(
         prod(segment[i:i+n])
         for segment in segments
-        for i in range(len(segment) - n)
+        for i in range(len(segment) - n + 1)
     )
 
 def problem_12(D=500):
@@ -221,11 +235,11 @@ def problem_12(D=500):
     If gcd(a, b) = 1, then d(ab) = d(a)d(b), where d(n) is the # of divisors of n.
     For all positive integers n we have gcd(n, n + 1) = 1.
     """
-    i, divisor_counts = 0, util.get_divisor_counts(2)
+    i, divisor_counts = 0, e.divisor_count_range(2)
     while True:
         # Add more divisor counts if necessary
         if i >= len(divisor_counts) - 1:
-            divisor_counts = util.get_divisor_counts(2 * i)
+            divisor_counts = e.divisor_count_range(2 * i)
 
         # Calculate the number of divisors for the i-th triangle number
         if i % 2 == 0:
@@ -235,7 +249,7 @@ def problem_12(D=500):
 
         # Check if the number of divisors exceeds n
         if num_divisors > D:
-            return util.polygonal(3, i)
+            return e.triangle(i)
         else:
             i += 1
 
@@ -246,15 +260,23 @@ def problem_13(n=10, path='data/problem_13.txt'):
     with open(path) as file:
         return str(sum(map(int, file.readlines())))[:n]
 
-def problem_14(N=int(1e6)):
+def problem_14(N=1_000_000):
     """
     Find the number below N that produces the longest Collatz sequence.
 
     Notes
-    ----
-    If n < N/2, then 2n has a longer sequence than n, so we need only look for n >= N/2.
+    -----
+    We can collapse steps in the Collatz sequence by considering n mod 4:
+
+        If n = 4k, we have 4k → 2k → k
+        If n = 4k + 1, we have 4k + 1 → 12k + 4 → 6k + 2 → 3k + 1
+        If n = 4k + 2, we have 4k + 2 → 2k + 1 → 6k + 4 → 3k + 2
+        If n = 4k + 3, we have 4k + 3 → 12k + 10 → 6k + 5 → 18k + 16 → 9k + 8
+
+    Also note that if n < N/2, then 2n has a longer sequence than n,
+    so we need only look for n >= N/2.
     """
-    @functools.cache
+    @cache
     def collatz(n):
         if n <= 2:
             return n
@@ -265,7 +287,7 @@ def problem_14(N=int(1e6)):
         else:
             return collatz(9 * (n - 3) // 4 + 8) + 4
 
-    return max(range(N // 2 + 1, N), key=collatz)
+    return max(range(N // 2, N), key=collatz)
 
 def problem_15(H=20, W=20):
     """
@@ -282,7 +304,7 @@ def problem_16(n=1000):
     """
     Find the sum of the digits of 2^n.
     """
-    return util.get_digit_sum(2**n)
+    return e.digit_sum(2**n)
 
 def problem_17(N=1000):
     """
@@ -310,9 +332,10 @@ def problem_17(N=1000):
             return tens[n // 10] + digits[n % 10]
         elif n < 1000:
             return digits[n // 100] + 'hundred' + (
-                'and' + int_to_words(n % 100) if n % 100 > 0 else '')
-        elif n < int(1e6):
-            return int_to_words(n // 1000) + 'thousand' + int_to_words(n % 1000)
+                'and' + int_to_words(n % 100) if 0 < n % 100 else '')
+        elif n < 1000000:
+            return int_to_words(n // 1000) + 'thousand' + (
+                'and' if 0 < n % 1000 < 100 else '') + int_to_words(n % 1000)
 
     return sum(len(int_to_words(n)) for n in range(1, N + 1))
 
@@ -336,26 +359,29 @@ def problem_19(start_year=1901, end_year=2000):
     How many Sundays fell on the first of the month during the 20th century?
     """
     import datetime
-    dates = [
-        datetime.date(year, month=month, day=1)
+    return sum(
+        datetime.date(year, month=month, day=1).weekday() == 6 # Sunday
         for year in range(start_year, end_year + 1)
         for month in range(1, 12 + 1)
-    ]
-
-    return len([date for date in dates if date.weekday() == 6]) # Sunday
+    )
 
 def problem_20(n=100):
     """
     Find the sum of the digits in the number n!.
     """
-    return util.get_digit_sum(factorial(n))
+    return e.digit_sum(factorial(n))
 
 def problem_21(N=10000):
     """
     Find the sum of all amicable numbers below N.
+
+    Notes
+    -----
+    The aliquot sum s(n) = σ(n) - n is the sum of proper divisors of n.
+    A number n is amicable if and only if s(s(n)) = n and s(n) != n.
     """
-    d = util.get_divisor_sums(N, proper=True)
-    return sum(n for n in range(N) if d[n] < N and n != d[n] and d[d[n]] == n)
+    s = e.aliquot_sum_range(N)
+    return sum(n for n in range(N) if s[n] < N and n != s[n] and s[s[n]] == n)
 
 def problem_22(path='data/problem_22.txt'):
     """
@@ -381,7 +407,11 @@ def problem_23(N=28123):
     Every multiple of 6 above 6 is abundant (since 6 is a perfect number).
 
     Then if a_k is the smallest abundant number congruent to k mod 6, it follows that
-    a_k + 6i is abundant for all integers i > 1.
+    a_k + 6i is an abundant sum for all integers i > 1.
+
+    In each residue class k mod 6, we must also check numbers below a_k + 12
+    for abundant sums. It can be verified that the only such sum is 40 = 20 + 20
+    for k = 4 mod 6.
 
     We can also verify that all abundant numbers below 28123 are 0, 2, 3, or 4 mod 6.
 
@@ -390,23 +420,20 @@ def problem_23(N=28123):
     """
     N = min(N, 28123) # all numbers above 28123 are abundant sums
 
-    # Calculate the sum of proper divisors for n = 1 ... N
-    proper_divisor_sum = util.get_divisor_sums(N, proper=True)
+    # Calculate the sum of proper divisors for n = 1 ... N - 1
+    proper_divisor_sums = e.aliquot_sum_range(N)
 
     # Get abundant numbers (grouped mod 6)
-    is_abundant = lambda n: n > 0 and proper_divisor_sum[n] > n
+    is_abundant = lambda n: n > 0 and proper_divisor_sums[n] > n
     abundant_numbers = [n for n in range(12, N) if is_abundant(n)]
-    abundant_numbers = {
-        i: [n for n in abundant_numbers if n % 6 == i]
-        for i in range(6)
-    }
+    abundant_numbers = e.group_by_key(abundant_numbers, key=lambda n: n % 6)
 
     # Find abundant sums (0, 2, 3, or 4 mod 6)
     abundant_sums = {
-        *range(12 + min(abundant_numbers[0]), N, 6), # 0 mod 6
-        *range(12 + min(abundant_numbers[2]), N, 6), # 2 mod 6
-        *range(12 + min(abundant_numbers[3]), N, 6), # 3 mod 6
-        *range(12 + min(abundant_numbers[4]), N, 6), # 4 mod 6
+        *range(12 + min(abundant_numbers[0], default=N), N, 6), # 0 mod 6
+        *range(12 + min(abundant_numbers[2], default=N), N, 6), # 2 mod 6
+        *range(12 + min(abundant_numbers[3], default=N), N, 6), # 3 mod 6
+        *range(12 + min(abundant_numbers[4], default=N), N, 6), # 4 mod 6
         *([40] if N > 40 else []) # edge case (40 = 20 + 20)
     }
 
@@ -418,7 +445,7 @@ def problem_23(N=28123):
 
     return sum(n for n in range(N) if n not in abundant_sums)
 
-def problem_24(n=int(1e6)):
+def problem_24(n=1_000_000):
     """
     Find the n-th lexicographic permutation of the digits 0-9.
 
@@ -435,11 +462,25 @@ def problem_24(n=int(1e6)):
 
     return ''.join(map(str, permutation))
 
-def problem_25(n=1000000):
+def problem_25(n=1000):
     """
     Find the index of the smallest n-digit Fibonacci number.
+
+    Notes
+    -----
+    By Carmichael's theorem, if i > 12, then the i-th Fibonacci number F(i)
+    has at least one prime divisor that does not divide any F(j) for j < i.
+
+    Since F(3) = 2 and F(5) = 5, it follows that F(i) cannot be a power of 10
+    for any i > 12. Combined with manual verification of F(1) ... F(12),
+    it follows that given n > 1, there exists no i such that F(i) = 10^(n - 1).
+
+    Therefore if F(i) is the largest Fibonacci number F(i) <= 10^(n - 1),
+    then F(i + 1) is the smallest Fibonacci number with at least n digits.
+
+    We also have F(0) = 0 as the smallest 1-digit Fibonacci number.
     """
-    return ceil(util.fibonacci_index(10, n - 1))
+    return 0 if n == 1 else e.fibonacci_index(10, n - 1) + 1
 
 def problem_26(N=1000):
     """
@@ -453,16 +494,10 @@ def problem_26(N=1000):
 
     The totient function is maximized for primes, where φ(p) = p - 1.
     """
-    def is_primitive_root(g: int, n: int) -> bool:
-        """
-        Check if g is a primitive root modulo n.
-        """
-        k = util.totient(n)
-        return all(pow(g, k // p, mod=n) != 1 for p in set(util.prime_factors(k)))
-
     # Check primes in descending order
+    is_primitive_root = lambda g, p: e.multiplicative_order(g, p) == p - 1
     for n in range(N, 1, -1):
-        if util.is_prime(n) and is_primitive_root(10, n):
+        if e.is_prime(n) and is_primitive_root(10, n):
             return n
 
 def problem_27(N=1000):
@@ -477,7 +512,7 @@ def problem_27(N=1000):
     We can also infer the bounds f(0) <= N and f(1) <= 2N + 1.
     """
     f = lambda a, b, x: x*x + a*x + b
-    prime_list = list(util.primes(high=2*N+1))
+    prime_list = list(e.primes(high=2*N+1))
 
     # Iterate over a, b such that f(0) and f(1) are prime by construction
     max_x, best_a, best_b = 0, 0, 0
@@ -485,8 +520,9 @@ def problem_27(N=1000):
         if f0 > N: break
         for f1 in prime_list:
             a, b = f1 - f0 - 1, f0
+            if a > N: break
             x = 2 # start with f(2), since we already know f(0) and f(1) must be prime
-            while util.is_prime(f(a, b, x)):
+            while e.is_prime(f(a, b, x)):
                 x += 1
             if x > max_x:
                 max_x, best_a, best_b = x, a, b
@@ -506,18 +542,18 @@ def problem_28(n=1001):
     Or alternatively: S(n) = (4n^3 + 3n^2 + 8n - 9) / 6
     """
     assert n % 2 == 1
-    return (4*n**3 + 3*n**2 + 8*n - 9) // 6
+    return (4*n*n*n + 3*n*n + 8*n - 9) // 6
 
-def problem_29(n=100):
+def problem_29(N=100):
     """
-    Given integers 2 <= a,b <= n, find the number of distinct values of a^b.
+    Given integers 2 <= a,b <= N, find the number of distinct values of a^b.
 
     Notes
     -----
     We will say that a ∈ ℕ has "exponential order k" if k is the largest integer
     for which there exists some c ∈ ℕ such that a = c^k.
 
-    Thus k <= 2, the order-k integers are 2^k, 3^k, 5^k, 6^k, 7^k, 10^k, etc.
+    Thus for a given k, the order-k integers are 2^k, 3^k, 5^k, 6^k, 7^k, 10^k, etc.
     Instances like 4^k or 8^k are of order 2k and 3k respectively.
 
     Notice that for each a of order k, the number of distinct values of a^b
@@ -526,29 +562,31 @@ def problem_29(n=100):
     It suffices to calculate the number of distinct values of a^b for each order k.
 
     Let a be an order-k integer. Then the duplicates are of the form a^b,
-    where b = m * lcm(j, k) / k for j = 1 ... k - 1 and m = 1 ... n * j / lcm(j, k).
+    where b = m * lcm(j, k) / k for j = 1 ... k - 1 and m = 1 ... N * j / lcm(j, k).
     """
     # Store the number of duplicates for each exponential order k
     num_duplicates = {1: 0}
-    for k in range(2, floor(log(n, 2)) + 1):
-        is_duplicate = [False] * n
+    for k in range(2, e.ilog(N, 2) + 1):
+        is_duplicate = bytearray([False]) * N
         for j in range(1, k):
-            stop, step = (n * j) // k + 1, lcm(j, k) // k
-            is_duplicate[0:stop:step] = [True] * len(is_duplicate[0:stop:step])
+            stop, step = (N * j) // k + 1, lcm(j, k) // k
+            count = (stop - 1) // step + 1
+            is_duplicate[0:stop:step] = bytearray([True]) * count
 
         num_duplicates[k] = sum(is_duplicate[2:])
 
     # Calculate exponential order of each base integer a
     exp_order = {}
-    for a in range(2, n + 1):
-        for k in range(1, round(log(n, a)) + 1):
-            x = a**k
+    for a in range(2, N + 1):
+        x = 1
+        for k in range(1, e.ilog(N, a) + 1):
+            x *= a
             if x not in exp_order:
                 exp_order[x] = k
 
     # Get total number of distinct powers
-    total_num_duplicates = sum([num_duplicates[exp_order[a]] for a in range(2, n + 1)])
-    return (n - 1) * (n - 1) - total_num_duplicates
+    total_num_duplicates = sum([num_duplicates[exp_order[a]] for a in range(2, N + 1)])
+    return (N - 1) * (N - 1) - total_num_duplicates
 
 def problem_30(n=5):
     """
@@ -574,7 +612,7 @@ def problem_30(n=5):
 
     # Find numbers that satisfy the condition
     values = set()
-    for digits in itertools.combinations_with_replacement(string.digits, k):
+    for digits in combinations_with_replacement(string.digits, k):
         a = digit_power_sum(digits)
         b = digit_power_sum(str(a))
         if a == b and a >= 10:
@@ -582,12 +620,12 @@ def problem_30(n=5):
 
     return sum(values)
 
-def problem_31(total=200, coin_values=[1, 2, 5, 10, 20, 50, 100, 200]):
+def problem_31(total=200, coin_values=(1, 2, 5, 10, 20, 50, 100, 200)):
     """
     How many different ways can the specified total be made using
     any number of coins from the given denominations?
     """
-    return util.get_partition_numbers(total, values=coin_values)[-1]
+    return e.count_partitions(total, restrict=set(coin_values).__contains__)
 
 def problem_32():
     """
@@ -648,8 +686,8 @@ def problem_34():
     digit_factorial_sum = lambda digits: sum(map(digit_factorials.__getitem__, digits))
 
     values = set()
-    for k in range(2, 7):
-        for digits in itertools.combinations_with_replacement(string.digits, k):
+    for k in range(2, 8):
+        for digits in combinations_with_replacement(string.digits, k):
             a = digit_factorial_sum(digits)
             b = digit_factorial_sum(str(a))
             if a == b and a >= 10:
@@ -657,7 +695,7 @@ def problem_34():
     
     return sum(values)
 
-def problem_35(N=int(1e6)):
+def problem_35(N=1_000_000):
     """
     Find the number of circular primes below N.
 
@@ -668,27 +706,27 @@ def problem_35(N=int(1e6)):
     to_integers = lambda iterable: map(int, map(''.join, iterable))
 
     # Get candidate primes with digits 1, 3, 7, 9
-    prime_list = list(util.primes(high=min(9, N))) # single-digit primes
-    for k in range(2, ceil(log(N, 10)) + 2):
+    prime_list = list(e.primes(high=min(9, N - 1))) # single-digit primes
+    for k in range(2, e.digit_count(N - 1) + 1):
         for n in to_integers(itertools.product('1379', repeat=k)):
-            if n <= N and util.is_prime(n):
+            if n < N and e.is_prime(n):
                 prime_list.append(n)
 
     # Find circular primes
     circular_primes = []
     for p in prime_list:
         rotations = (int(str(p)[i:] + str(p)[:i]) for i in range(len(str(p))))
-        if all(map(util.is_prime, rotations)):
+        if all(map(e.is_prime, rotations)):
             circular_primes.append(p)
 
     return len(circular_primes)
 
-def problem_36(N=int(1e6)):
+def problem_36(N=1_000_000):
     """
     Find the sum of all numbers less than N which are palindromic in
     both base 2 and base 10.
     """
-    max_num_digits = int(log(N - 1, 10)) + 1
+    max_num_digits = e.digit_count(N - 1)
     is_binary_palindrome = lambda n: bin(n)[2:] == bin(n)[2:][::-1]
 
     # Generate even-length decimal palindromes
@@ -716,12 +754,12 @@ def problem_37():
     where d is 1, 3, 7, or 9 and p is a (k-1)-digit right-truncatable prime.
     """
     is_left_truncatable = lambda p: all(
-        util.is_prime(int(str(p)[i:]))
+        e.is_prime(int(str(p)[i:]))
         for i in range(1, len(str(p)))
     )
 
     # Generate all right-truncatable primes
-    right_truncatable_primes = list(util.primes(high=9)) # single-digit primes
+    right_truncatable_primes = list(e.primes(high=9)) # single-digit primes
     for k in itertools.count(start=1):
         k_digit_primes = [p for p in right_truncatable_primes if len(str(p)) == k]
         if len(k_digit_primes) == 0:
@@ -729,12 +767,12 @@ def problem_37():
 
         for p in k_digit_primes:
             for d in (1, 3, 7, 9): # cannot end in even digit or 5
-                if util.is_prime(q := 10 * p + d):
+                if e.is_prime(q := 10 * p + d):
                     right_truncatable_primes.append(q)
 
     # Filter for primes that are also left-truncatable
     truncatable_primes = [p for p in right_truncatable_primes if is_left_truncatable(p)]
-    return sum(truncatable_primes) - sum(util.primes(high=9))
+    return sum(truncatable_primes) - sum(e.primes(high=9))
 
 def problem_38():
     """
@@ -744,16 +782,15 @@ def problem_38():
     digits = set('123456789')
     concat_prod = lambda a, n: ''.join(str(a * i) for i in range(1, n + 1))
     is_pandigital = lambda s: len(s) == len(digits) and set(s) == digits
-    has_repeated_digits = lambda n: len(set(str(n))) < len(str(n))
 
     # Find the largest pandigital concatenated product
     max_concat_prod = int(concat_prod(9, 5))
     for a in range(10000):
         # Skip numbers that cannot form a larger pandigital number
-        num_digits = len(str(a))
+        num_digits = e.digit_count(a)
         if a < max_concat_prod // 10**(9 - num_digits):
             continue
-        if has_repeated_digits(a) or '0' in str(a):
+        if e.has_repeated_digits(a) or '0' in str(a):
             continue
 
         # Generate concatenated products
@@ -768,10 +805,10 @@ def problem_39(N=1000):
     Find p <= N that produces the most Pythagorean triples (a, b, c)
     with a + b + c = p.
     """
-    counts = Counter(map(sum, util.pythagorean_triples(max_sum=N)))
+    counts = Counter(map(sum, e.pythagorean_triples(max_sum=N)))
     return max(range(N + 1), key=counts.__getitem__)
 
-def problem_40(idx=(10**i for i in range(7))):
+def problem_40(idx=tuple(10**i for i in range(7))):
     """
     Find the product of the digits at the specified indices
     in Champernowne's constant.
@@ -799,13 +836,17 @@ def problem_41():
 
     Notes
     -----
-    All n-digit pandigital numbers are divisible by 3 for n = 2, 3, 5, 6, 8, 9.
+    All n-digit pandigital numbers are divisible by 3 for n = 2, 3, 5, 6, 8, 9,
+    as the sum of their digits is divisible by 3, and the only 1-digit pandigital
+    number is 1, which is not prime.
+
+    Thus, we only need to check 4-digit and 7-digit pandigital numbers.
     """
     # Iterate over candidates in descending order
     for n in (7, 4):
         for digits in permutations(range(n, 0, -1)):
             a = int(''.join(map(str, digits)))
-            if util.is_prime(a):
+            if e.is_prime(a) and digits[0] != 0:
                 return a
 
 def problem_42(path='data/problem_42.txt'):
@@ -818,7 +859,7 @@ def problem_42(path='data/problem_42.txt'):
 
     char_values = {c: ord(c) - ord('A') + 1 for c in string.ascii_uppercase}
     word_values = [sum(map(char_values.__getitem__, word)) for word in words]
-    triangle_numbers = set(util.polygonal_numbers(3, high=max(word_values)))
+    triangle_numbers = set(e.polygonal_numbers(3, high=max(word_values)))
     return sum(x in triangle_numbers for x in word_values)
 
 def problem_43():
@@ -829,37 +870,79 @@ def problem_43():
 
     Notes
     -----
-    We know that digit 6 is 0 or 5, and it being 0 would imply digits 7 = digit 8,
-    which is impossible.
+    We can construct pandigital numbers from right to left,
+    checking each divisibility condition as we go.
     """
-    digits = set(map(str, range(10)))
-    has_repeated_digits = lambda s: len(set(s)) < len(s)
+    digits = set(string.digits)
     candidates = {f'{n:03d}' for n in range(17, 1000, 17)}
-    candidates = {n for n in candidates if not has_repeated_digits(n)}
+    candidates = {n for n in candidates if not e.has_repeated_digits(n)}
 
     # Construct numbers from right to left
-    for p in (13, 11, 7, 5, 3, 2):
+    for p in (13, 11, 7, 5, 3, 2, 1):
         candidates = {
             f'{d}{n}' # prepend digit d
-            for n in candidates # existing candidates
-            for d in digits - set(n) # remaining digits
-            if int(f'{d}{n[:2]}') % p == 0 # check divisibility
+            for n in candidates # to each of our existing candidates
+            for d in digits - set(n) # for each remaining unused digit
+            if int(f'{d}{n[:2]}') % p == 0 # if first 3 digits are divisible by p
         }
 
-    return sum([int(n) for n in candidates])
+    return sum(map(int, candidates))
 
-def problem_44():
+def problem_44(n=1):
     """
-    Find the smallest difference between a pair of pentagonal numbers for which
-    their sum and difference are both pentagonal.
-    """
-    pentagonal_numbers = set()
-    for p_j in util.polygonal_numbers(5):
-        for p_k in pentagonal_numbers:
-            if (p_j - p_k) in pentagonal_numbers and util.is_polygonal(5, p_j + p_k):
-                return p_j - p_k
+    Find the difference of the n-th pair of pentagonal numbers for which
+    both their sum and difference are pentagonal, in increasing order of
+    their difference.
 
-        pentagonal_numbers.add(p_j)
+    Notes
+    -----
+    Let P(i) = (3i^2 - i)/2 be the i-th pentagonal number.
+
+    We are looking for a pair of pentagonal numbers P(i) and P(j) with i > j
+    such that there exist s, d > 0 with P(i) + P(j) = P(s) and P(i) - P(j) = P(d).
+
+    Since we are looking to minimize P(d), we can equivalently rewrite this as
+    P(d) + P(j) = P(i) and P(d) + 2*P(j) = P(s), which allows us to successively
+    check each d = 1, 2, ... until we find a solution.
+
+    For any given d, we are looking for integers j that satisfy the two conditions.
+    Examining the first condition, we can see that P(d) + P(j) = P(i) is pentagonal
+    when (3d^2 - d)/2 + (3j^2 - j)/2 = (3i^2 - i)/2. Using the quadratic formula to
+    solve for j, we find that this has positive integer solutions j = (1 + y) / 6
+    only when 12d - 36d^2 + (6i - 1)^2 = y^2 is a perfect square.
+
+    Let x = 6i - 1 and N = 36d^2 - 12d. Then this reduces to the quadratic Diophantine
+    equation x^2 - y^2 = N, which has integer solutions when (x - y)(x + y) = N.
+    Thus, for each factorization of N = A * B with A < B and A = B mod 2,
+    we have x = (A + B) / 2 and y = (B - A) / 2, and therefore i = (x + 1) / 6
+    and j = (y + 1) / 6 as integer solutions.
+
+    Now given that d, i, j are integer indices such that P(d) = P(i) - P(j),
+    we only need to check whether P(i) + P(j) is pentagonal.
+    """
+    count = 0
+    P = lambda k: e.polygonal(5, k)
+    for d in itertools.count(start=1):
+        factors = sorted(e.divisors(36*d*d - 12*d))
+        for k in range(len(factors) // 2):
+            # Get factor pair a*b = N
+            a, b = factors[k], factors[-k-1]
+            if (b - a) % 2 != 0:
+                continue
+
+            # Get corresponding x, y values
+            x, y = (a + b) // 2, (b - a) // 2
+            if x % 6 != 5 or y % 6 != 5:
+                continue
+
+            # Get pentagonal indices i, j
+            i, j = (x + 1) // 6, (y + 1) // 6
+            if e.is_polygonal(5, P(i) + P(j)):
+                count += 1
+
+            # Return the pentagonal difference
+            if count == n:
+                return P(d)
 
 def problem_45(N=40755):
     """
@@ -875,9 +958,9 @@ def problem_45(N=40755):
 
     This reduces to the Pell equation x^2 - 3y^2 = -2.
     """
-    for x, y in util.pell(D=3, N=-2):
+    for x, y in e.pell(D=3, N=-2):
         if x % 6 == 5 and y % 4 == 3:
-            n = (y*y + 1) // 8
+            n = (y*y - 1) // 8
             if n > N:
                 return n
 
@@ -887,48 +970,55 @@ def problem_46():
     n = p + 2a^2, where p is prime and a is a positive integer.
     """
     for n in itertools.count(start=9, step=2):
-        if util.is_prime(n):
+        if e.is_prime(n):
             continue
-        if not any(util.is_prime(n - 2*a*a) for a in range(1, isqrt(n) + 1)):
+        if not any(e.is_prime(n - 2*a*a) for a in range(1, isqrt(n // 2) + 1)):
             return n
 
-def problem_47(n=4, k=4, upper_bound=None):
+def problem_47(n=4, k=4):
     """
     Find the first n consecutive integers to have k distinct prime factors each.
+
+    Notes
+    -----
+    If an integer a < L has k distinct prime factors, then for any prime
+    p | a we have the upper bound p < L / (p_1 * p_2 * ... * p_{k-1}),
+    where p_i is the i-th prime.
     """
-    # Count the number of prime factors for each integer below the upper bound
-    upper_bound = upper_bound or 200000
-    max_factor = upper_bound // prod(util.primes(num=k-1))
-    num_prime_factors = [0] * upper_bound
-    for p in util.primes(high=max_factor):
-        num_prime_factors[p::p] = [count + 1 for count in num_prime_factors[p::p]]
+    upper_bound = 200000 # initial guess
+    while True:
+        # Count the number of prime factors for each integer below the upper bound
+        max_factor = upper_bound // prod(e.primes(num=k-1))
+        num_prime_factors = [0] * upper_bound
+        for p in e.primes(high=max_factor):
+            num_prime_factors[p::p] = [count + 1 for count in num_prime_factors[p::p]]
 
-    # Search for consecutive integers with k prime factors
-    num_consecutive = 0
-    for i in range(prod(util.primes(num=k)), upper_bound):
-        if num_prime_factors[i] == k:
-            num_consecutive += 1
-        else:
-            num_consecutive = 0
-        if num_consecutive == n:
-            return i - n + 1
+        # Search for consecutive integers with k prime factors
+        num_consecutive = 0
+        for i in range(prod(e.primes(num=k)), upper_bound):
+            if num_prime_factors[i] == k:
+                num_consecutive += 1
+            else:
+                num_consecutive = 0
+            if num_consecutive == n:
+                return i - n + 1
 
-    # Increase the upper bound and try again
-    return problem_47(n=n, k=k, upper_bound=10*upper_bound)
+        # Increase the upper bound and try again
+        upper_bound *= 10
 
-def problem_48(n=1000, k=10):
+def problem_48(N=1000, k=10):
     """
-    Find the k trailing digits of the series 1^1 + 2^2 + ... + n^n.
+    Find the k trailing digits of the series 1^1 + 2^2 + ... + N^N.
     """
     mod = 10**k
-    return sum([pow(i, i, mod=mod) for i in range(1, n + 1)]) % mod
+    return sum([pow(i, i, mod=mod) for i in range(1, N + 1)]) % mod
 
 def problem_49(n=4, k=3, exclude=(1487, 4817, 8147)):
     """
     Find an arithmetic sequence of k n-digit primes, each of which are permutations.
     """
     seen = set()
-    prime_set = set(util.primes(low=10**(n-1), high=10**n)) # n-digit primes
+    prime_set = set(e.primes(low=10**(n-1), high=10**n)) # n-digit primes
     for p in prime_set:
         if p in seen:
             continue
@@ -944,31 +1034,33 @@ def problem_49(n=4, k=3, exclude=(1487, 4817, 8147)):
             if diffs == [diffs[0]] * (k - 1) and sequence != exclude:
                 return ''.join(map(str, sequence))
 
-def problem_50(N=int(1e6)):
+def problem_50(N=1_000_000):
     """
     Which prime below N can be written as the sum of the most consecutive primes?
+
+    Notes
+    -----
+    Let s(k) be the cumulative sum of the first k primes.
+    Then the sum of primes p_i + ... + p_j is s(j) - s(i - 1).
     """
-    # Calculate an upper bound on the number of consecutive primes to consider
-    prime_list = list(util.primes(high=N))
-    prime_cumsum = itertools.accumulate(prime_list)
-    max_chain_length = next(i for i, s in enumerate(prime_cumsum) if s > N)
+    # Calculate cumulative sums of primes
+    prime_cumsum = itertools.accumulate(e.primes())
+    prime_cumsum = list(itertools.takewhile(lambda s: s < N, prime_cumsum))
+    max_chain_length = len(prime_cumsum)
 
-    # Calculate sums via DP, where sums[i, j] stores the sum of prime_list[i:j]
-    sums = {}
-    longest_chain = []
-    for i in range(len(prime_list) - max_chain_length):
-        for j in range(i + len(longest_chain), i + max_chain_length):
-            if (i - 1, j - 1) in sums:
-                sums[i, j] = sums[i - 1, j - 1] - prime_list[i - 1] + prime_list[j - 1]
-            else:
-                sums[i, j] = sum(prime_list[i:j])
-
-            if sums[i, j] >= N:
+    # Search for the longest valid chain of consecutive primes
+    for chain_length in range(max_chain_length, 0, -1):
+        best_prime = None
+        for i in range(max_chain_length - chain_length + 1):
+            prime_sum = prime_cumsum[i + chain_length - 1]
+            prime_sum -= prime_cumsum[i - 1] if i > 0 else 0
+            if prime_sum >= N:
                 break
-            elif util.is_prime(sums[i, j]):
-                longest_chain = prime_list[i:j]
+            if e.is_prime(prime_sum):
+                best_prime = prime_sum
 
-    return sum(longest_chain)
+        if best_prime is not None:
+            return best_prime
 
 def problem_51(n=8):
     """
@@ -978,10 +1070,15 @@ def problem_51(n=8):
     Notes
     -----
     For a family of k-digit primes, they differ by multiples of step size Δ
-    which contains 1 at the digit positions to be replaced, and 0 everywhere else.
+    which contains 1 at the digit positions to be replaced, and 0 everywhere else,
+    forming an arithmetic progression.
 
     For example, the family (56003, 56113, 56333, 56443, 56663, 56773, 56993)
     differs by multiples of 00110.
+
+    Any family of size n must have at least one number with digit d < 11 - n
+    at the replaced positions, as otherwise there would be fewer than n members
+    in the family.
 
     If n > 4, then the last digit cannot be replaced, since the last digit must be
     1, 3, 7, or 9 to be prime.
@@ -989,19 +1086,25 @@ def problem_51(n=8):
     If n > 7, then the number of digits to be replaced must be a multiple of 3, as
     otherwise there are at least 3 multiples of 3 among the 10 potential family members.
     """
+    find_indices = lambda digits, d: [i for i, x in enumerate(digits) if x == d]
     for k in itertools.count(start=1):
-        prime_list = list(util.primes(low=10**(k-1), high=10**k)) # k-digit primes
+        # Generate all k-digit primes
+        prime_list = list(e.primes(low=10**(k-1), high=10**k)) # k-digit primes
         prime_set = set(prime_list)
+
+        # Check each k-digit prime for valid families of size n
         for p in prime_list:
-            digits = str(p)
-            for d in set(digits):
-                if n > 4 and digits[-1] == d: continue
-                if n > 7 and digits.count(d) % 3 != 0: continue
-                step = int(''.join(['1' if digits[i] == d else '0' for i in range(k)]))
-                start, stop = p - int(d) * step, p + (10 - int(d)) * step
-                family = [q for q in range(start, stop, step) if q in prime_set]
-                if len(family) == n:
-                    return family[0]
+            for d in string.digits[:11-n]: # only check digits d <= 10 - n
+                # Replace a subset of the positions where digit d occurs
+                for idx in e.powerset(find_indices(str(p), d)):
+                    if not idx: continue # skip the empty set
+                    if n > 4 and k - 1 in idx: continue # our n > 4 condition
+                    if n > 7 and len(idx) % 3 != 0: continue # our n > 7 condition
+                    step = sum(10**(k - i - 1) for i in idx)
+                    start, stop = p - int(d) * step, p + (10 - int(d)) * step
+                    family = [q for q in range(start, stop, step) if q in prime_set]
+                    if len(family) == n:
+                        return family[0]
 
 def problem_52(k=6):
     """
@@ -1011,20 +1114,22 @@ def problem_52(k=6):
     Notes
     -----
     If 2n, 3n, ... kn all have the same digits, then they have the same digital
-    sum s, and thus are all congruent to s mod 9. If k > 2, this implies n = 0 mod 9.
+    sum S, and thus are all congruent to S mod 9. If k > 2, this implies n = 0 mod 9.
+
+    Given that 2n, 3n, ... kn all have the same length L, then this also implies
+    the bounds 10^(L-1) / 2 <= n <= (10^L - 1) / k.
     """
     if k <= 2:
         return 1
 
-    for i in itertools.count(start=1):
-        start, stop = 10**i // 2, 10**(i + 1) // k + 1
-        start = ((start + 9 - 1) // 9) * 9 # round up to nearest multiple of 9
-        for x in range(start, stop, 9):
-            digits = sorted(str(2 * x))
-            if all(sorted(str(k * x)) == digits for k in range(3, k + 1)):
+    for L in itertools.count(start=2):
+        low, high = 10**(L-1) // 2, (10**L - 1) // k
+        low = ((low + 9 - 1) // 9) * 9 # round up to nearest multiple of 9
+        for x in range(low, high + 1, 9):
+            if all(e.is_permutation(2*x, i*x) for i in range(3, k + 1)):
                 return x
 
-def problem_53(N=100, T=int(1e6)):
+def problem_53(N=100, T=1_000_000):
     """
     Find the number of pairs (n, k) such that (n choose k) > T, for n = 1, 2, ..., N.
 
@@ -1041,29 +1146,31 @@ def problem_53(N=100, T=int(1e6)):
 
         (n choose (k - 1)) = (n choose k) * k / (n - k + 1)
 
-        ((n + 1) choose k) = (n choose k) * (n + 1) / (n + 1 - k)
+        ((n + 1) choose k) = (n choose k) * (n + 1) / (n - k + 1)
 
     Finally, given threshold T > 1, it can be shown that (n choose k) <= T
     for all n <= log_2(T) + 1 (proof omitted).
     """
     # Find lower bound on n
-    n_min = int(log(T, 2)) + 2
-    n_min = next(n for n in itertools.count(start=n_min) if comb(n, n // 2) > T)
+    n_min = e.ilog(T, 2) + 2
+    n_min = e.binary_search(lambda n: comb(n, n // 2), threshold=T+1, low=n_min)
 
     # Count the total number of values that exceed the threshold
     k, count = n_min // 2, 0
     binomial_coefficient = comb(n_min - 1, k - 1)
     for n in range(n_min, N + 1):
         # Update binomial coefficient
-        binomial_coefficient *= n / (n - k + 1)
+        binomial_coefficient *= n
+        binomial_coefficient //= (n - k + 1)
 
         # Decrement k until (n choose (k - 1)) falls below threshold
         while binomial_coefficient > T:
             k -= 1
-            binomial_coefficient *= k / (n - k + 1)
+            binomial_coefficient *= k
+            binomial_coefficient //= (n - k + 1)
 
         # Update count
-        count += n + 1 - 2 * k
+        count += n + 1 - 2*k
 
     return count
 
@@ -1078,6 +1185,7 @@ def problem_54(path='data/problem_54.txt'):
 
     def get_rank(hand):
         values = sorted([CARD_VALUES[card[0]] for card in hand], reverse=True)
+        values = [5, 4, 3, 2, 1] if values == [14, 5, 4, 3, 2] else values
         suits = {card[1] for card in hand}
         is_straight = (values == list(range(values[0], values[0] - 5, -1)))
         is_flush = (len(suits) == 1)
@@ -1125,7 +1233,7 @@ def problem_55(N=10000, max_iterations=50):
             sequence.append(sequence[-1] + int(str(sequence[-1])[::-1]))
 
             # Check if new element is a palindrome (or leads to one)
-            if sequence[-1] in non_lychrel or util.is_palindrome(sequence[-1]):
+            if sequence[-1] in non_lychrel or e.is_palindrome(sequence[-1]):
                 non_lychrel.update(sequence[:-1])
                 break
 
@@ -1135,43 +1243,52 @@ def problem_56(N=100):
     """
     Considering natural numbers of the form a^b with a, b < N,
     find the maximum digital sum.
-f
+
     Notes
     -----
-    The exponential a^b has log_10(a^b) = ⌊b * log_10(a) + 1⌋ digits,
-    with a digital sum no greater than 9 * ⌊b * log_10(a) + 1⌋.
+    The exponential a^b has ⌊b * log_10(a) + 1⌋ digits with a digital sum
+    no greater than 9 * ⌊b * log_10(a) + 1⌋ <= 9 * b * ⌊log_10(a) + 1⌋.
     """
     max_digit_sum = 0
     for a in range(N - 1, 0, -1):
         for b in range(N - 1, 0, -1):
-            if 9 * int(b * math.log10(a) + 1) < max_digit_sum: break
-            max_digit_sum = max(max_digit_sum, util.get_digit_sum(a**b))
+            if 9 * b * (e.ilog(a, 10) + 1) < max_digit_sum:
+                break
+            if (s := e.digit_sum(a**b)) > max_digit_sum:
+                max_digit_sum = s
 
     return max_digit_sum
 
 def problem_57(N=1000):
     """
-    For the fractions a/b at each of the first N iterations of Babylonian method
-    approximation of sqrt(2), how many have more digits in the numerator than
-    the denominator?
+    For each of the first N convergents a/b of the continued fraction for √2,
+    how many fractions have a numerator with more digits than the denominator?
     """
-    a, b, count = 1, 1, 0
-    for _ in range(N):
-        a, b = a + 2*b, a + b
-        count += (int(math.log10(a)) > int(math.log10(b)))
-
-    return count
+    coefficients, _, _ = e.periodic_continued_fraction(2)
+    return sum(
+        e.digit_count(a) > e.digit_count(b)
+        for a, b in e.convergents(coefficients, num=N+1) # skip 1/1
+    )
 
 def problem_58(ratio=0.1):
     """
     Find the side length of the Ulam spiral for which the ratio of primes
     along both diagonals first falls below the given ratio.
+
+    Notes
+    -----
+    We can see that the total number of diagonal elements for an n x n
+    Ulam spiral is 2n - 1.
+
+    The next 4 numbers on the diagonals of the Ulam spiral reaching
+    odd side length n are given by n^2 - i*(n - 1) for i = 0, 1, 2, 3,
+    where i = 0 can be ignored as n^2 cannot be prime.
     """
-    num_primes, total = 0, 1
+    num_primes = 0
     for n in itertools.count(start=3, step=2):
-        num_primes += sum(util.is_prime(n*n - i*(n - 1)) for i in range(1, 4))
-        total += 4
-        if num_primes / total < ratio:
+        diagonals = (n*n - i*(n - 1) for i in range(1, 4))
+        num_primes += sum(map(e.is_prime, diagonals))
+        if num_primes < ratio * (2*n - 1):
             return n
 
 def problem_59(path='data/problem_59.txt'):
@@ -1215,53 +1332,67 @@ def problem_59(path='data/problem_59.txt'):
         except ValueError:
             pass
 
-def problem_60(n=5, upper_bound=None):
+def problem_60(n=5):
     """
     Find the lowest sum for a set of n primes for which
     any pair of primes concatenate to produce another prime.
 
     Notes
     -----
+    This is equivalent to finding the minimum-weight clique of size n
+    in a graph where each vertex is a prime number and an edge exists
+    between two primes p and q if both concatenations p||q and q||p are prime.
+
     Note that every positive integer is congruent to the sum of its digits mod 3.
     Then 3 divides the concatenation of p and q if and only if 3 divides p + q.
+
+    It is also clear that 2 and 5 cannot be part of any clique for n > 1,
+    as no other primes can end in 2 or 5.
     """
-    upper_bound = upper_bound or 10000
-    is_prime = util.is_prime
+    if n == 1: return 2
+    is_prime = e.is_prime
     is_prime_concat = lambda p, q: is_prime(int(f'{q}{p}')) and is_prime(int(f'{p}{q}'))
 
-    # Create a graph of primes with edges indicating concatenatable pairs
-    primes = util.primes(high=upper_bound)
-    graph = {p: set() for p in primes if n == 1 or p not in (2, 5)}
-    for p, q in combinations(graph.keys(), 2):
-        if (p + q) % 3 == 0: continue
-        if is_prime_concat(p, q):
-            graph[p].add(q)
-            graph[q].add(p)
+    # Initialize the graph of primes
+    graph = {3: set()}
+    prev_high, high = 6, 10000
 
-    # Find cliques of size n and n - 1
-    maximal_cliques = util.bron_kerbosch(graph)
-    cliques = {
-        k: [c for mc in maximal_cliques for c in combinations(mc, k)]
-        for k in (n - 1, n)
-    }
+    # Search for cliques of size n
+    while True:
+        # Add new primes to the graph with edges indicating concatenatable pairs
+        new_primes = tuple(e.primes(low=prev_high+1, high=high))
+        new_prime_pairs = list(combinations(new_primes, 2))
+        new_prime_pairs += list(itertools.product(new_primes, graph.keys()))
+        graph.update({p: set() for p in new_primes})
+        for p, q in new_prime_pairs:
+            if (p + q) % 3 == 0: continue
+            if is_prime_concat(p, q):
+                graph[p].add(q)
+                graph[q].add(p)
 
-    # Increase upper bound if no n-cliques are found
-    # or if our (n-1)-cliques are not guaranteed to contain a minimal sum
-    if not cliques[n] or min(map(sum, cliques[n - 1])) > upper_bound:
-        return problem_60(n, upper_bound=2*upper_bound)
+        # Find cliques of size n and (n - 1)
+        maximal_cliques = e.bron_kerbosch(graph)
+        big_cliques = [c for mc in maximal_cliques for c in combinations(mc, n)]
+        small_cliques = [c for mc in maximal_cliques for c in combinations(mc, n - 1)]
 
-    # Try to construct additional n-cliques from (n-1)-cliques by
-    # adding a new prime p, where upper_bound < p < clique_sum_bound
-    clique_sum_bound = min(map(sum, cliques[n]))
-    prime_list = list(util.primes(low=upper_bound+1, high=clique_sum_bound))
-    for clique in cliques[n - 1]:
-        for p in prime_list:
-            if sum(clique) + p >= clique_sum_bound: break
-            if (p + clique[0]) % 3 == 0: continue
-            if all(is_prime_concat(p, q) for q in clique):
-                cliques[n].append((*clique, p))
+        # Increase our range of primes if no n-cliques are found
+        # or if our (n-1)-cliques are not guaranteed to contain a minimal sum
+        if not big_cliques or min(map(sum, small_cliques)) > high:
+            high, prev_high = high * 2, high
+            continue
 
-    return min(map(sum, cliques[n]))
+        # Try to construct additional n-cliques from (n-1)-cliques by
+        # adding a new prime p, where high < p < clique_sum_bound
+        clique_sum_bound = min(map(sum, big_cliques))
+        prime_list = list(e.primes(low=high+1, high=clique_sum_bound))
+        for clique in small_cliques:
+            for p in prime_list:
+                if sum(clique) + p >= clique_sum_bound: break
+                if (p + clique[0]) % 3 == 0: continue
+                if all(is_prime_concat(p, q) for q in clique):
+                    big_cliques.append((*clique, p))
+
+        return min(map(sum, big_cliques))
 
 def problem_61(n=8, k=4):
     """
@@ -1272,7 +1403,7 @@ def problem_61(n=8, k=4):
     """
     # Generate k-digit figurate numbers
     figurate_numbers = {
-        s: list(util.polygonal_numbers(s, low=10**(k - 1), high=10**k - 1))
+        s: list(e.polygonal_numbers(s, low=10**(k-1), high=10**k - 1))
         for s in range(3, n + 1)
     }
 
@@ -1281,7 +1412,7 @@ def problem_61(n=8, k=4):
     graph = defaultdict(set)
     for i, j in permutations(figurate_numbers, 2):
         for x, y in itertools.product(figurate_numbers[i], figurate_numbers[j]):
-            if str(x)[-k//2:] == str(y)[:k//2]:
+            if f'{x}'[-k//2:] == f'{y}'[:k//2]:
                 graph[(i, x)].add((j, y))
 
     def find_next(path):
@@ -1291,12 +1422,14 @@ def problem_61(n=8, k=4):
         # No repeated figure types (unless we have already used them all)
         figures, values = zip(*path)
         if len(path) == len(figurate_numbers):
+            # We've used all types, only allow closing the cycle
             return [node for node in graph[path[-1]] if node[0] not in figures[1:]]
         else:
+            # Don't repeat any polygon types
             return [node for node in graph[path[-1]] if node[0] not in figures]
 
     # Find cycles in the graph
-    cycle = next(util.find_cycles(find_next=find_next), None)
+    cycle = next(e.find_cycles(find_next=find_next), None)
     return sum(value for figure, value in cycle) if cycle else None
 
 def problem_62(n=5):
@@ -1305,14 +1438,15 @@ def problem_62(n=5):
     """
     for k in itertools.count(start=1):
         # Generate all k-digit cubes
-        low, high = ceil((10**(k - 1)) ** (1/3)), floor((10**k - 1) ** (1/3))
+        low = e.iroot(10**(k - 1) - 1, 3) + 1
+        high = e.iroot(10**k - 1, 3)
         cubes = (str(i*i*i) for i in range(low, high + 1))
 
         # Check for a permutation group of size n
-        permutations = [
-            group for group in util.group_permutations(cubes) if len(group) == n]
-        if permutations:
-            return min(min(group) for group in permutations)
+        cube_permutations = e.group_permutations(cubes)
+        cube_permutations = [group for group in cube_permutations if len(group) == n]
+        if cube_permutations:
+            return min(min(map(int, group)) for group in cube_permutations)
 
 def problem_63():
     """
@@ -1323,32 +1457,28 @@ def problem_63():
     Any such number a^n must satisfy 10^(n-1) <= a^n < 10^n.
     This implies that a < 10 and n < 22.
     """
-    has_n_digits = lambda x, n: 10**(n - 1) <= x < 10**n
-    return len([a**n for a in range(10) for n in range(22) if has_n_digits(a**n, n)])
+    return sum(e.digit_count(a**n) == n for a in range(1, 10) for n in range(1, 22))
 
 def problem_64(N=10000):
     """
-    Find the number of continued fractions for sqrt(n) for which the period is odd.
+    Find the number of continued fractions for √n for which the period is odd.
     """
-    get_period_length = lambda n: util.continued_fraction(n)[-1]
-    return sum(get_period_length(n) % 2 == 1 for n in util.non_squares(N))
+    get_period_length = lambda n: e.periodic_continued_fraction(n)[-1]
+    return sum(get_period_length(n) % 2 == 1 for n in e.non_squares(N))
 
 def problem_65(n=100):
     """
     Find the sum of digits in the numerator of the n-th convergent for e.
     """
-    coefficients = [2, 1]
-    for k in range(1, n // 3 + 1):
-        coefficients += (2 * k, 1, 1)
-
-    return util.get_digit_sum(util.convergents(coefficients)[n - 1][0])
+    coefficients = [2, 1] + [a for k in range(1, n // 3 + 1) for a in (2*k, 1, 1)]
+    return e.digit_sum(e.nth(e.convergents(coefficients), n)[0])
 
 def problem_66(N=1000):
     """
     Find the value of D <= N that maximizes x in the fundamental solution
     to Pell's equation x^2 - Dy^2 = 1.
     """
-    return max(util.non_squares(N), key=lambda D: next(util.pell(D))[0])
+    return max(e.non_squares(N), key=lambda D: next(e.pell(D))[0])
 
 def problem_67(path='data/problem_67.txt'):
     """
@@ -1358,41 +1488,37 @@ def problem_67(path='data/problem_67.txt'):
 
 def problem_68(n=5):
     """
-    Find the maximum solution for an n-gon ring as a concatenated string, where:
+    Find the lexicographically maximum solution for an n-gon ring as a
+    concatenated string, where:
 
-        * Each number from 1 ... 2n is used exactly once
-        * The sum of the numbers in each group of three is the same
-        * The first group of three has the numerically lowest external node
-        * Groups are ordered clockwise
+        * The ring consists of numbers from 1 ... 2n
+        * The ring consists of n overlapping groups of three numbers
+        * The last number in each group is the middle number in the next group
+        * The last number of the last group is the middle number of the first
+        * No other numbers are shared between groups
+        * The sum of the numbers in each group is the same
+        * The first group has the numerically lowest external node
 
     Notes
     -----
-    Given group (a, b, c), the next group is of the form (a + i, c, b - i),
-    where max(1 - a, b - 2n) < i < min(b - 1, 2n - a).
+    Given group (a, b, c), in order to maintain the same group sum, the next 
+    group must be of the form (a + i, c, b - i), with the constraint that
+    max(1 - a, b - 2n) < i < min(b - 1, 2n - a).
 
-    If n is odd, then the maximal solution has n + 1 ... 2n in the outer ring,
-    and has 1 ... n in the inner ring.
+    The middle numbers from each group form an inner ring of size n,
+    while the first numbers from each group form an outer ring of size n.
 
-    Here the initial groups are (n + 1, n, (n + 1) / 2) and (2n, (n + 1) / 2, 1),
-    followed by the rule (a, b, c) -> (a - 1, c, b + 1).
-
-    If n is even, then the maximal solution has n ... 2n (except 3n/2) in the
-    outer ring, and has 3n/2 and 1 ... n - 1 in the inner ring.
-
-    Here the initial group is (n, 3n/2, 2).
+    Finding a valid n-gon ring is equivalent to finding a cycle in the directed
+    graph where each node is a triple (a, b, c) representing a group, and there
+    is an edge from (a, b, c) to (a + i, c, b - i) for each group that does not
+    violate the n-gon constraints.
     """
-    # Closed form solution for odd n
-    if n % 2 == 1:
-        external = [n + 1, *range(2*n, n + 1, -1)]
-        internal = [(n - i * (n - 1) // 2 - 1) % n + 1 for i in range(n)]
-        solution = zip(external, internal, (*internal[1:], internal[0]))
-        return ''.join(map(str, sum(solution, ())))
-
-    has_repeated_values = cache(lambda a: len(set(a)) < len(a))
+    contains_duplicates = cache(lambda a: len(set(a)) < len(a))
     all_values = set(range(1, 2*n + 1))
 
     def find_next(path):
-        # Go back to start if possible when there are no remaining values
+        # Find unused values from 1 ... 2n that are not in the path
+        # Go back to start (if possible) when there are no remaining values
         remaining_values = all_values - {value for group in path for value in group}
         if not remaining_values and path[0][1] == path[-1][-1]:
             return [path[0]]
@@ -1403,18 +1529,21 @@ def problem_68(n=5):
         external, internal = remaining_values, remaining_values | {path[0][1]}
         return [
             (a + i, c, b - i)
-            for i in reversed(range(min_offset, max_offset + 1))
-            if a + i in external
-            if b - i in internal
-            if not has_repeated_values((a + i, c, b - i))
+            for i in range(min_offset, max_offset + 1)
+            if a + i in external and b - i in internal
+            if not contains_duplicates((a + i, c, b - i))
         ]
 
-    solution = next(util.find_cycles(find_next=find_next))
-    return ''.join(map(str, sum(solution, ())))
+    # Search for cycles starting from each possible group
+    return max(
+        ''.join(map(str, sum(cycle, ())))
+        for group in permutations(range(1, 2*n + 1), 3)
+        for cycle in e.find_cycles(find_next=find_next, current_path=[group])
+    )
 
-def problem_69(N=int(1e6)):
+def problem_69(N=1_000_000):
     """
-    Find the value of n <= N for which n / φ(n) is a maximum,
+    Find the value of n with 1 <= n <= N for which n / φ(n) is a maximum,
     where φ is Euler's totient function.
 
     Notes
@@ -1424,14 +1553,10 @@ def problem_69(N=int(1e6)):
 
     The solution is the largest primorial less than or equal to N.
     """
-    primorial = 1
-    for p in util.primes():
-        if (next_primorial := primorial * p) > N: break
-        primorial = next_primorial
+    primorials = itertools.accumulate(e.primes(), lambda x, y: x * y)
+    return max(itertools.takewhile(lambda p: p <= N, primorials), default=1)
 
-    return primorial
-
-def problem_70(N=int(1e7)):
+def problem_70(N=10_000_000):
     """
     Find the value of n with 1 < n < N for which φ(n) is a permutation of n
     and the ratio n / φ(n) produces a minimum, where φ is Euler's totient function.
@@ -1447,52 +1572,62 @@ def problem_70(N=int(1e7)):
     If 2817 < N <= 2991, then the optimal solution is n = 2817 = 3 * 3 * 313.
 
     Conjecture: All other optimal solutions are semiprimes n = pq
-    with p, q < 2 * sqrt(N) (verified by brute force for N <= 10^8).
+    (verified empirically for N <= 10^9).
 
     Also note that if n = pq and φ(n) = (p - 1)(q - 1) are permutations,
     then they have the same digital sum, and thus must be congruent mod 9.
     Therefore we must have n - φ(n) = p + q - 1 = 0 mod 9, or p + q = 1 mod 9.
     """
+    pi = e.count_primes
+    prime_list = list(pi.cache_primes(N // 2))
+
     # Special case that needs product of 3 primes
     if 2817 < N <= 2991:
         return 2817 # 3 * 3 * 313
 
-    prime_list = list(util.primes(high=2*isqrt(N)))
-    is_permutation = lambda a, b: sorted(str(a)) == sorted(str(b))
-
+    # Search over semiprimes
     best_n, best_ratio = 0, float('inf')
-    for p in reversed(prime_list[:util.count_primes(sqrt(N), prime_list)]):
-        for q in reversed(prime_list[:util.count_primes(N // p, prime_list)]):
-            n, totient_n = p * q, (p - 1) * (q - 1)
+    for p in reversed(prime_list[:pi(isqrt(N))]):
+        for q in reversed(prime_list[:pi(N // p)]):
+            n, totient_n = p*q, (p - 1)*(q - 1)
             if (ratio := n / totient_n) >= best_ratio:
                 break
-            if (p + q) % 9 == 1 and is_permutation(n, totient_n):
+            if (p + q) % 9 == 1 and e.is_permutation(n, totient_n):
                 best_n, best_ratio = n, ratio
                 break
 
     return best_n
 
-def problem_71(N=int(1e6), a=3, b=7):
+def problem_71(N=1_000_000, a=3, b=7):
     """
-    Given proper fraction a/b such that a < b, find the numerator of
+    Given proper fraction a/b such that a < b <= N, find the numerator of
     the largest reduced proper fraction c/d less than a/b, where c < d <= N
     and gcd(c, d) = 1.
 
     Notes
     -----
-    For positive integers a, b, c, d, given that gcd(a, b) = 1, the difference
-    a/b - c/d = (ad - bc) / bd will be minimized when ad - bc = 1.
+    For positive integers a, b, c, d, given that gcd(a, b) = 1,
+    the difference a/b - c/d = (ad - bc) / bd will be minimized
+    when ad - bc = 1. Bézout's lemma guarantees us that a solution
+    exists with c <= a <= N and d <= b <= N.
 
     Then we have 1 = ad - bc = ad mod b, so our denominator d
     must be congruent to modular inverse d = a^(-1) mod b.
+
+    We need only to select the largest such d <= N, and set the
+    numerator to c = (ad - 1) / b.
+
+    Furthermore, ad - bc = 1 also implies gcd(c, d) = 1, so c/d
+    must already be a reduced proper fraction.
     """
-    a, b = a // gcd(a, b), b // gcd(a, b) # reduce fraction
+    g = gcd(a, b)
+    a, b = a // g, b // g # reduce fraction
     offset = N - b + 1
     denominator = (pow(a, -1, b) - offset) % b + offset
-    numerator = (denominator * a - 1) // b
+    numerator = (a * denominator - 1) // b
     return numerator
 
-def problem_72(N=int(1e6)):
+def problem_72(N=1_000_000):
     """
     Find the number of reduced proper fractions a/b for b <= N.
 
@@ -1501,53 +1636,108 @@ def problem_72(N=int(1e6)):
     We know a/b is a proper reduced fraction if and only if a < b and gcd(a, b) = 1.
     Given b, the number of coprime integers below b is given by the totient function.
     """
-    return sum(util.get_totients(N)[2:])
+    return sum(e.totient_range(N + 1)[2:])
 
 def problem_73(N=12000, low=1/3, high=1/2):
     """
-    Find the number of reduced proper fractions low < a/b < high with b <= N.
-    """
-    start = lambda n: floor(n * low) + 1
-    stop = lambda n: ceil(n * high)
-    return sum(sum(util.coprime_range(n)[start(n):stop(n)]) for n in range(2, N + 1))
+    Find the number of reduced proper fractions such that low < n/d < high with d <= N.
 
-def problem_74(N=int(1e6), k=60):
+    Notes
+    -----
+    For each denominator d, let f(d) = ⌈d*high⌉ - ⌊d*low⌋ - 1 be the total number
+    of fractions n/d with low < n/d < high.
+
+    We can see that any fraction a/b can be reduced to (a/k) / (b/k),
+    where k = gcd(a, b). It follows that we can also express f(d) as follows:
+
+        f(d) = ∑_{k | d} g(k)
+
+    where g(k) is the number of reduced fractions n/d with low < n/d < high.
+
+    The Möbius inversion formula allows us to express g in terms of f:
+
+        g(d) = ∑_{k | d} μ(k) * f(d/k).
+
+    where μ(k) is the Möbius function.
     """
-    TODO
+    count = lambda d: ceil(high * d) - floor(low * d) - 1
+    cumsum = list(itertools.accumulate(map(count, range(1, N + 1)), initial=0))
+    mu = e.mobius_range(N + 1)
+    return sum(mu[k] * cumsum[N // k] for k in range(1, N + 1))
+
+def problem_74(n=6, k=60):
+    """
+    For any integer a > 0, consider the sequence a, s(a), s(s(a)), ...
+    where s(a) is the sum of the factorial of the digits of a.
+    Find the number of integers with at most n digits that result in a
+    chain containing exactly k non-repeating terms.
+
+    Notes
+    -----
+    All chains eventually enter one of the following cycles:
+
+        (1 → 1), (2 → 2), (145 → 145), (40585 → 40585)
+        (871 → 45361 → 871), (872 → 45362 → 872)
+        (169 → 363601 → 1454 → 169)
+
+    Ignoring leading zeros, integers with the same set of digits result in
+    the same value of s(n).
+
+    If the digit counts are a0, ..., a9 with sum a0 + ... + a9 = d,
+    then there are P = (d - a0) (d - 1)! / (a0! * ... * a9!) such integers.
+
+    When a is not a permutation of any element in a cycle, then all P
+    permutations lead to chains of the same length L.
+
+    When a is a permutation of an element in a cycle of length L,
+    then (P - 1) of these permutations will lead to a chain of length L + 1,
+    while only the cycle element itself has a chain of length L.
+
+    Therefore we only need to consider one integer for each set of digits
+    and adjust by its multiplicity.
     """
     digit_values = {str(d): factorial(d) for d in range(10)}
-    base_chains = {
-        1: (1,), 2: (2,), 145: (145,), 40585: (40585,),
-        169: (169, 363601, 1454),
-        363601: (169, 363601, 1454), 
-        1454: (169, 363601, 1454),
-        871: (871, 45361), 45361: (871, 45361),
-        872: (872, 45362), 45362: (872, 45362),
+    s = lambda n: sum(map(digit_values.__getitem__, f'{n}'))
+    base_cases = {
+        1: 1, 2: 1, 145: 1, 40585: 1,
+        871: 2, 45361: 2, 872: 2, 45362: 2,
+        169: 3, 363601: 3, 1454: 3,
     }
 
-    @functools.cache
-    def chain(n):
-        if n in base_chains:
-            return base_chains[n]
-        else:
-            n = sum(map(digit_values.__getitem__, str(n)))
-            return (n,) + chain(n)
+    @cache
+    def chain_length(n: int) -> int:
+        return base_cases[n] if n in base_cases else 1 + chain_length(s(n))
 
-    return sum(len(chain(n)) == k for n in range(N))
+    # Map digit permutations of cycle elements to cycle lengths
+    permutation_cycle_lengths = {
+        b: L for a, L in base_cases.items() for b in e.digit_permutations(a)}
 
-def problem_75(N=1500000):
+    # Iterate over digit combinations
+    count = 0
+    for a, multiplicity in e.digit_combinations(n):
+        if a in permutation_cycle_lengths:
+            if k == permutation_cycle_lengths[a]:
+                count += 1
+            elif k == permutation_cycle_lengths[a] + 1:
+                count += multiplicity - 1
+        elif chain_length(a) == k:
+            count += multiplicity
+
+    return count
+
+def problem_75(N=1_500_000):
     """
     Find the number of n <= N such that a + b + c = n for exactly one
     Pythagorean triple (a, b, c).
     """
-    counts = Counter(map(sum, util.pythagorean_triples(max_sum=N)))
-    return list(counts.values()).count(1)
+    perimeter_counts = Counter(map(sum, e.pythagorean_triples(max_sum=N)))
+    return list(perimeter_counts.values()).count(1)
 
 def problem_76(n=100):
     """
     Return the number of non-trivial partitions of integer n.
     """
-    return util.num_partitions(n) - 1
+    return e.count_partitions(n) - 1
 
 def problem_77(N=5000):
     """
@@ -1555,64 +1745,126 @@ def problem_77(N=5000):
     more than N different ways.
     """
     for n in itertools.count():
-        if util.num_partitions(n, restrict=util.is_prime) > N:
+        if e.count_partitions(n, restrict=e.is_prime) > N:
             return n
 
-def problem_78(N=int(1e6)):
+def problem_78(N=1_000_000):
     """
     Find the smallest positive integer n for which the value of partition function
     p(n) is divisible by N.
     """
-    for n, p in enumerate(util.partition_numbers(mod=N)):
-        if p == 0:
-            return n 
+    return next(n for n, p in enumerate(e.partition_numbers(mod=N)) if p == 0)
 
 def problem_79(path='data/problem_79.txt'):
     """
-    TODO: handle repeat characters
+    Given a set of subsequences, find the shortest possible supersequence.
+
+    Notes
+    -----
+    If we assume the supersequence has no repeated elements, then we can
+    simply create a directed graph of character precedence and perform a
+    topological sort.
+
+    Otherwise, this becomes the Shortest Common Supersequence (SCS) problem,
+    which is known to be NP-complete.
+
+    Given n subsequences, we keep a state (i_1, i_2, ..., i_n) indicating
+    how many characters have been matched from each subsequence so far.
+
+    We can then perform a breadth-first search (BFS) over the state space,
+    where from each state we can transition to a new state by adding
+    a character that matches the next unmatched character in at least
+    one of the subsequences.
     """
+    # Create a directed (hopefully acyclic) graph
+    # where an edge (u, v) indicates u precedes v
     with open(path) as file:
-        lines = [line.strip() for line in file.readlines()]
-        characters = {c for line in lines for c in line}
+        sequences = [line.strip() for line in file.readlines()]
+        graph = defaultdict(set)
+        for sequence in sequences:
+            for u, v in zip(sequence, sequence[1:]):
+                graph[u].add(v)
 
-    solution = []
-    while characters:
-        first = {line[-3] for line in lines if len(line) > 2}
-        second = {line[-2] for line in lines if len(line) > 1}
-        third = {line[-1] for line in lines if len(line) > 0}
-        for c in third - first - second:
-            characters.remove(c)
-            solution.insert(0, c)
-            lines = {line.strip(c) for line in lines} - {''}
+    # Try to perform topological sort on the graph
+    try:
+        return ''.join(e.topological_sort(graph))
+    except ValueError:
+        pass # cycle detected, fall back to SCS solution
 
-    return ''.join(solution)
+    sequence_lengths = tuple(len(s) for s in sequences)
+    start, target = (0,) * len(sequences), sequence_lengths
+    parent = {start: (None, None)} # (prev_state, item_added)
+    queue = deque([start])
 
-def problem_80(N=100, k=10000):
+    # Run BFS over state space
+    while queue:
+        state = queue.popleft()
+        if state == target:
+            break
+
+        # Find candidate sequence items
+        # Store which sequences can advance when adding each potential item
+        candidates = defaultdict(list)
+        for j, sequence in enumerate(sequences):
+            i = state[j]
+            if i < sequence_lengths[j]:
+                candidates[sequence[i]].append(j)
+
+        # Explore candidate states
+        for item, idx in candidates.items():
+            new_state = list(state)
+            for j in idx: new_state[j] = new_state[j] + 1
+            new_state = tuple(new_state)
+            if new_state not in parent:
+                parent[new_state] = (state, item)
+                queue.append(new_state)
+
+    # Reconstruct item order
+    order, state = [], target
+    while parent[state][0] is not None:
+        state, item = parent[state]
+        order.insert(0, item)
+
+    return ''.join(order)
+
+def problem_80(N=100, k=100):
     """
     Find the sum of the first k digits in the decimal expansion for the
-    irrational square roots of integers 1, 2, ..., N.
+    irrational square roots of integers 1, 2, ..., N (including the integer part).
+
+    Notes
+    -----
+    To find the decimal expansion of √n to k digits, we can compute
+    ⌊√(n * 10^(2k))⌋ and extract the first k digits.
     """
-    # Rationally approximate square roots with Newton's method
-    total = 0
-    for n in util.non_squares(N):
-        a, b = ceil(sqrt(n)), 1
-        while math.log10(b) < k:
-            a, b = a*a + b*b*n, 2*a*b
-
-        # Convert to a k-digit integer and get digital sum
-        total += util.get_digit_sum(a * 10**(k - int(math.log10(a // b)) - 1) // b)
-
-    return total
+    return sum(
+        e.digit_sum(isqrt(n * 10**(2 * max(0, k - d))) // 10**max(0, d - k))
+        for n in e.non_squares(N)
+        for d in (e.digit_count(isqrt(n)),)
+    )
 
 def problem_81(
     path='data/problem_81.txt',
     allowed_moves=('right', 'down'),
-    start_nodes={(0, 0)},
-    end_nodes={(79, 79)},
+    start_nodes=((0, 0),),
+    end_nodes=((79, 79),),
 ):
     """
-    Find the minimum path sum from any start node to any end node.
+    Find the minimum path sum from the top left to the bottom right,
+    moving only right and down.
+
+    Notes
+    -----
+    We can model the problem as finding the shortest path in a directed
+    weighted graph, where each matrix cell is a node, and edges connect
+    nodes according to allowed moves. The weight of each edge is given
+    by the value of the destination node.
+
+    We can also generalize to find the shortest path from any set of start nodes
+    to any set of end nodes, by adding a 'source' node connected to all start nodes,
+    and a 'sink' node connected to all end nodes.
     """
+    start_nodes, end_nodes = set(start_nodes), set(end_nodes)
     moves = {'left': (0, -1), 'right': (0, 1), 'up': (-1, 0), 'down': (1, 0)}
     deltas = [moves[move] for move in allowed_moves]
 
@@ -1631,125 +1883,142 @@ def problem_81(
 
         r, c = node
         neighbors = [
-            (r + dr, c + dc)
-            for dr, dc in deltas
+            (r + dr, c + dc) for dr, dc in deltas
             if 0 <= r + dr < height and 0 <= c + dc < width
         ]
 
         return neighbors + ['sink'] if node in end_nodes else neighbors
 
-    # Edge weights given by matrix values
-    def get_edge_weight(u, v):
-        return 0 if v == 'sink' else matrix[v[0]][v[1]]
-
     # Find shortest path from 'source' to 'sink'
-    dist, _ = util.dijkstra('source', get_neighbors, get_edge_weight)
+    get_edge_weight = lambda u, v: matrix[v[0]][v[1]] if v != 'sink' else 0
+    dist, _ = e.dijkstra('source', get_neighbors, get_edge_weight)
     return dist['sink']
 
 def problem_82(
-    path='data/problem_81.txt',
+    path='data/problem_82.txt',
     allowed_moves=('right', 'up', 'down'),
-    start_nodes={(r, 0) for r in range(80)},
-    end_nodes={(r, 79) for r in range(80)},
+    start_nodes=tuple((r, 0) for r in range(80)),
+    end_nodes=tuple((r, 79) for r in range(80)),
 ):
     """
-    Find the minimum path sum from any start node to any end node.
+    Find the minimum path sum from the far right column to the far left column,
+    moving only right, up, and down.
     """
     return problem_81(path, allowed_moves, start_nodes, end_nodes)
 
 def problem_83(
-    path='data/problem_81.txt',
+    path='data/problem_83.txt',
     allowed_moves=('right', 'left', 'up', 'down'),
-    start_nodes={(0, 0)},
-    end_nodes={(79, 79)},
+    start_nodes=((0, 0),),
+    end_nodes=((79, 79),),
 ):
     """
-    Find the minimum path sum from any start node to any end node.
+    Find the minimum path sum from the top left to the bottom right,
+    moving right, left, up, and down.
     """
     return problem_81(path, allowed_moves, start_nodes, end_nodes)
 
-def problem_84(n=4):
+def problem_84(n=4, k=3):
     """
-    Return the three most likely squares landed on in a game of Monopoly
+    Return the k most likely squares landed on in a game of Monopoly
     with two n-sided dice.
 
     Notes
     -----
-    We ignore the fact that each CH or CC card is returned to the bottom of
-    the pile after it is used, and instead assume each draw is independent.
+    We can model the game as a Markov chain.
 
-    This should not significantly affect the probabilities, and our relative
-    probability ordering should (hopefully) be the same.
+    A game state is a pair (square, d), where square ∈ [0, 39] is the current
+    square on the board, and d ∈ [0, 2] is the number of consecutive doubles rolled.
+    Thus there are 120 states in total, and and the transitions between states
+    are determined by the rules of the game.
+
+    We also collapse all jail states (JAIL, d) into a single state (JAIL, 0),
+    as the doubles count is reset when arriving in jail.
+
+    We ignore the fact that each CH or CC card is returned to the bottom of
+    the pile after it is used, and instead assume each draw is independent,
+    otherwise handling the (16!/14!) * (16!/(6!2!)) ≈ 3.5 trillion unique
+    deck states alone becomes infeasible.
+
+    This should have a negligible effect on the overall probabilities,
+    and our relative probability ordering should be the same.
     """
-    GO, JAIL, G2J = 0, 10, 30 # special squares
-    CH1, CH2, CH3 = 7, 22, 36 # chance
-    CC1, CC2, CC3 = 2, 17, 33 # community chest
-    C1, E3, H2 = 11, 24, 39 # properties
-    R1, R2, R3 = 5, 15, 25 # railway
-    U1, U2 = 12, 28 # utility
-    next_railway = {CH1: R2, CH2: R3, CH3: R1}
-    next_utility = {CH1: U1, CH2: U2, CH3: U1}
+    num_squares, max_doubles = 40, 3
+    GO, JAIL, GO_TO_JAIL = 0, 10, 30
+    CH, CC = (7, 22, 36), (2, 17, 33)
+    next_R, next_U = dict(zip(CH, (15, 25, 5))), dict(zip(CH, (12, 28, 12)))
+    chance_targets = (GO, JAIL, 11, 24, 39, 5)
 
     # Create transition matrix T, where T[i][j] is the probability of
-    # moving from square i to square j after a single turn
-    T = [[0] * 40 for _ in range(40)]
-    for i in range(40):
-        # Roll dice
-        for roll_1, roll_2 in itertools.product(range(1, n + 1), repeat=2):
-            T[i][(i + roll_1 + roll_2) % 40] += 1/(n*n)
+    # moving from state i to state j after a single roll
+    num_states = num_squares * max_doubles
+    get_state = lambda square, d: square + num_squares * d * (square != JAIL)
+    T = [[0] * num_states for _ in range(num_states)]
 
-        # Go to jail
-        T[i][JAIL], T[i][G2J] = T[i][JAIL] + T[i][G2J], 0
+    # Distribute probability mass from a roll in a given state
+    def distribute_probability(state, landing_square, d, p):
+        landing_square = JAIL if landing_square == GO_TO_JAIL else landing_square
+        if landing_square in CH:
+            T[state][get_state(landing_square, d)] += p * (6/16)
+            T[state][get_state(next_R[landing_square], d)] += p * (2/16)
+            back_3 = (landing_square - 3) % num_squares
+            for target in (*chance_targets, next_U[landing_square], back_3):
+                distribute_probability(state, target, d, p * (1/16))
+        elif landing_square in CC:
+            for target, count in ((GO, 1), (JAIL, 1), (landing_square, 14)):
+                T[state][get_state(target, d)] += p * (count / 16)
+        else:
+            T[state][get_state(landing_square, d)] += p
 
-        # Chance
-        for j in (CH1, CH2, CH3):
-            p, T[i][j] = T[i][j], 0
-            T[i][j] += p * (6/16) # stay
-            T[i][next_railway[j]] += p * (2/16)
-            for k in (GO, JAIL, C1, E3, H2, R1, next_utility[j], (j - 3) % 40):
-                T[i][k] += p * (1/16)
-
-        # Community chest
-        for j in (CC1, CC2, CC3):
-            p, T[i][j] = T[i][j], 0
-            for k, count in ((GO, 1), (JAIL, 1), (j, 14)):
-                T[i][k] += p * (count / 16)
-
-        # Roll 3 consecutive doubles
-        p = (1/6)**3
-        for j in range(40): T[i][j] *= (1 - p)
-        T[i][JAIL] += p
+    # Enumerate all possible rolls from each state
+    for state in range(num_states):
+        d, square = divmod(state, num_squares)
+        for a, b in itertools.product(range(1, n + 1), repeat=2):
+            next_d = d + 1 if a == b else 0
+            jail = (a == b) and (next_d == max_doubles)
+            target = JAIL if jail else (square + a + b) % num_squares
+            distribute_probability(state, target, 0 if jail else next_d, 1/(n*n))
 
     # Find stationary distribution
-    probs = [0] * 40
-    probs[GO] = 1
-    for _ in range(100):
-        probs = util.matrix_product([probs], T)[0]
+    I = e.identity_matrix(num_states)
+    A = e.matrix_difference(e.matrix_transpose(T), I)
+    A[-1], b = [1] * num_states, [0] * (num_states - 1) + [1]
+    probs = e.linear_solve(A, b)
 
-    # Get the three most likely squares
-    argsort = sorted(range(40), key=probs.__getitem__)
-    return f'{argsort[-1]:02}{argsort[-2]:02}{argsort[-3]:02}'
+    # Find most likely squares
+    square_probs = [sum(probs[i::num_squares]) for i in range(num_squares)]
+    argsort = sorted(range(num_squares), key=square_probs.__getitem__)
+    return ''.join(f'{i:02}' for i in argsort[-k:][::-1])
 
-def problem_85(n=int(2e6)):
+def problem_85(n=2_000_000):
     """
     Find the area of the grid containing the number of rectangles nearest to n.
 
     Notes
     -----
-    The number of rectangles in an H x W grid is given by T_H * T_W,
-    where T_n is the n-th triangular number.
+    Without loss of generality, let h <= w be the height and width of the grid.
+
+    The number of rectangles in an h x w grid is the number of ways
+    to choose the two x-coordinates and the two y-coordinates.
+    This can be expressed as (h choose 2) * (w choose 2) = T(h) * T(w),
+    where T(i) is the i-th triangular number.
+
+    For any given height h, we can target w such that T(w) ≈ n / T(h) = x
+    by finding the roots for the quadratic expression for T(w). Since
+    w must be an integer, after taking the floor we can look at midpoint
+    (T(w) + T(w + 1)) / 2 = (w + 1)^2 / 2 to determine whether to round up or down.
     """
-    best_area, best_diff = 0, float('inf')
-    for h, T_h in enumerate(util.polygonal_numbers(3, high=isqrt(n)), start=1):
-        w = round(util.polygonal_index(3, n / T_h))
-        T_w = util.polygonal(3, w)
-        diff = abs(T_h * T_w - n)
-        if diff < best_diff:
-            best_area, best_diff = h * w, diff
+    best_area, best_error = 0, float('inf')
+    for h, T_h in enumerate(e.polygonal_numbers(3, low=1, high=isqrt(n)), start=1):
+        w = e.polygonal_index(3, x := n // T_h)
+        w += (2*x > (w + 1) * (w + 1))
+        T_w = e.polygonal(3, w)
+        if (error := abs(T_h * T_w - n)) < best_error:
+            best_area, best_error = h * w, error
 
     return best_area
 
-def problem_86(N=int(1e6)):
+def problem_86(N=1_000_000):
     """
     Find the least value of M such there exist at least N distinct cuboids,
     ignoring rotations, with integer dimensions (x, y, z), where x, y, z <= M,
@@ -1765,83 +2034,109 @@ def problem_86(N=int(1e6)):
     If z = a, we have satisfying dimensions (b - i, i, a) for i = ⌈b/2⌉ ... a.
     If z = b, we have satisfying dimensions (a - i, i, b) for i = ⌈a/2⌉ ... a - 1.
 
-    TODO: derive upper bound for Pythagorean triples
+    For every Pythagorean triple of the form (3k, 4k, 5k), setting z = 4k
+    results in ⌊3k/2⌋ satisfying cuboids. Given the constraint z <= M,
+    summing Σ 3k/2 over all k = 1 ... M/4 results in a lower bound of
+    N >= (3/64) * M * (M + 4) > (3/64) * M^2.
+
+    Thus for any given N, we have the upper bound M < √(64N/3).
+    Given that b <= 2a, this also implies the upper bound c <= √5 * M.
     """
-    # Generate Pythagorean triples
-    triples = list(util.pythagorean_triples(max_sum=10000))
-    triples_1 = iter(sorted(triples, key=lambda t: t[0]))
-    triples_2 = iter(sorted(triples, key=lambda t: t[1]))
+    # Compute upper bounds
+    max_M, max_c = isqrt(64 * N // 3), isqrt(5 * 64 * N // 3)
 
-    # Count solutions
-    a1, b1, _ = next(triples_1)
-    a2, b2, _ = next(triples_2)
-    count = 0
-    while count <= N:
-        if a1 < b2:
-            if ceil(b1 / 2) <= a1: count += a1 - ceil(b1 / 2) + 1
-            M, (a1, b1, _) = a1, next(triples_1)
-        else:
-            count += a2 // 2
-            M, (a2, b2, _) = b2, next(triples_2)
+    # Calculate the number of cuboids for each M
+    num_cuboids = [0] * (max_M + 1)
+    for a, b, _ in e.pythagorean_triples(max_c=max_c):
+        if b <= max_M:
+            num_cuboids[b] += a // 2
+        if a <= max_M and b <= 2 * a:
+            num_cuboids[a] += a - (b - 1) // 2
 
-    return M
+    # Find the smallest M to reach at least N total cuboids
+    cumulative_sum = itertools.accumulate(num_cuboids)
+    return next(M for M, total in enumerate(cumulative_sum) if total >= N)
 
-def problem_87(N=int(5e7)):
+def problem_87(N=50_000_000):
     """
-    Find the number of positive integers below N such that n = p^2 + q^3 + r^4
-    for prime p, q, r.
-    """
-    values = set()
-    prime_list = list(util.primes(high=isqrt(N)))
-
-    for r in prime_list:
-        if (a := r*r*r*r) >= N: break
-        for q in prime_list:
-            if (b := a + q*q*q) >= N: break
-            for p in prime_list:
-                if (c := b + p*p) >= N: break
-                values.add(c)
-
-    return len(values)
-
-def problem_88(N=12000):
-    """
-    Find the sum of all positive integers n <= N that can be written as the
-    sum of a product set, where the product set is the minimal set of positive
-    integers whose product is n.
+    Find the number of positive integers n = p^2 + q^3 + r^4 < N for prime p, q, r.
 
     Notes
     -----
-    If n = a_1 * ... * a_k, then ...
-    TODO: complete notes + optimize
+    Given p, q, r >= 2, this implies the following bounds:
+
+        p <= (N - 1 - 2^3 - 2^4)^(1/2) = (N - 25)^(1/2)
+        q <= (N - 1 - 2^2 - 2^4)^(1/3) = (N - 21)^(1/3)
+        r <= (N - 1 - 2^2 - 2^3)^(1/4) = (N - 13)^(1/4)
+
+    We can also infer an upper bound on the intermediate sum q^3 + r^4 < N - 4.
     """
-    @cache
-    def factorizations(n):
-        if n == 1:
-            return set()
+    # Precompute prime powers
+    squares = [p*p for p in e.primes(high=isqrt(N - 25))]
+    cubes = [q*q*q for q in e.primes(high=e.iroot(N - 21, 3))]
+    fourths = [r*r*r*r for r in e.primes(high=e.iroot(N - 13, 4))]
 
-        results = {(n,)}
-        for d in util.divisors(n)[1:]:
-            for factors in factorizations(n // d):
-                results.add(tuple(sorted((d, *factors))))
+    # Get all unique q^3 + r^4 sums
+    cube_fourth_sums = sorted({x + y for x in fourths for y in cubes if x + y < N - 4})
 
-        return results
+    # Combine with p^2 values
+    seen = bytearray(N)
+    for square in squares:
+        for m in cube_fourth_sums:
+            if (n := m + square) >= N: break
+            seen[n] = True
 
-    product_sum_numbers = defaultdict(set)
-    for n in range(2, 2*N + 1):
-        if util.is_prime(n): continue
-        for factors in factorizations(n):
-            k = n - sum(factors) + len(factors)
-            if 2 <= k <= N:
-                product_sum_numbers[k].add(n)
+    return seen.count(1)
 
-    minimal_product_sum_numbers = set(map(min, product_sum_numbers.values()))
-    return sum(minimal_product_sum_numbers)
+def problem_88(K=12000):
+    """
+    Consider a minimal product-sum number as the smallest positive integer that
+    is equal to both the sum and product of a sequence of k positive integers.
+
+    Find the sum of all distinct minimal product-sum numbers for sequences of
+    length 2 <= k <= K.
+
+    Notes
+    -----
+    We can represent product-sum numbers as a non-decreasing sequence of integers
+    A = (a_1, a_2, ..., a_k).
+
+    For a given sequence A = (a_1, ..., a_j), if n = prod(A) >= sum(A), then by
+    padding the sequence with 1's until the sum matches the product, we find that
+    n is a product-sum number for sequence length k = len(A) + prod(A) - sum(A).
+
+    Now consider the k-length sequence A = (k, 2, 1, 1, ... 1) with (k - 2) 1's.
+    We can see that sum(A) = prod(A) = 2k, so it follows that 2k is an upper bound
+    for the minimal product-sum number for sequence length k.
+    """
+    def search(sequence_product, sequence_sum, sequence_length, sequence_max):
+        k = sequence_length + sequence_product - sequence_sum
+        if k <= K:
+            if sequence_product < minimal_product_sum_numbers[k]:
+                minimal_product_sum_numbers[k] = sequence_product
+            for a in range(sequence_max or 2, 2*K//sequence_product + 1):
+                search(sequence_product * a, sequence_sum + a, sequence_length + 1, a)
+
+    minimal_product_sum_numbers = [2*K] * (K + 1)
+    search(1, 0, 0, None)
+    return sum(set(minimal_product_sum_numbers[2:]))
 
 def problem_89(path='data/problem_89.txt'):
     """
     Find the total number of characters saved by writing the given
     Roman numerals in their minimal form.
+
+    Notes
+    -----
+    Assuming the numeral contains no more than four consecutive identical units,
+    considering subtractive combinations we find there are only two valid general
+    forms of non-minimality:
+
+        VIIII → IX
+        IIII  → IV
+
+    where I, X can be swapped with any two consecutive powers of 10,
+    and V with the corresponding multiple of 5.
     """
     def to_minimal(roman: str):
         roman = roman.replace('DCCCC', 'CM')
@@ -1856,36 +2151,46 @@ def problem_89(path='data/problem_89.txt'):
         roman_numerals = file.read()
         return len(roman_numerals) - len(to_minimal(roman_numerals))
 
-def problem_90(numbers=[1, 4, 9, 16, 25, 36, 49, 64, 81]):
+def problem_90(targets=(1, 4, 9, 16, 25, 36, 49, 64, 81), rule=str.maketrans('6', '9')):
     """
     Consider a cube with a different digit on each face. Given a set of n-digit
     numbers, find the number of distinct arrangements of n such cubes allow for
-    all the numbers to be displayed (with digits 6 and 9 being interchangeable).
+    all the numbers to be displayed, where the cubes can be used in any order,
+    and where one is allowed to flip a cube's 6 to represent a target digit 9
+    (or flip a 9 to represent a target digit 6) if needed.
 
     Notes
     -----
-    We can ignore the 6/9 ambiguity by replacing all 9's with 6's.
+    In this problem, digits 6 and 9 are interchangeable in terms of
+    representation power, but still count as distinct faces in terms
+    of counting cube arrangements.
+
+    We can ignore the 6/9 ambiguity by replacing all 6's with 9's on
+    both the target numbers and the cube faces, essentially collapsing
+    them into a single 6/9 symbol, and any cube may use at most two such
+    symbols.
+
+    We treat 6/9 as a single symbolic digit in the matching problem,
+    but still count them as distinct faces combinatorially.
     """
-    n = len(str(max(numbers)))
-    numbers = {str(x).zfill(n).replace('9', '6') for x in numbers} # to n-length strings
-    numbers = {''.join(sorted(str(x))) for x in numbers} # ignore digit order
+    n = len(str(max(targets))) if targets else 0
+    targets = {tuple(sorted(str(t).zfill(n).translate(rule))) for t in targets}
 
-    def all_in(items, collections):
-        for item, collection in zip(items, collections):
-            if item not in collection:
-                return False
-        return True
-
-    # Check if all numbers can be displayed by a given set of cubes
-    def is_valid(cubes):
-        for digits in numbers:
-            if not any(map(lambda order: all_in(digits, order), permutations(cubes))):
-                return False
-        return True
+    # Check if all targets can be covered by some ordering of the groups
+    def is_valid(groups):
+        for sequence in targets:
+            for ordering in permutations(groups):
+                for item, group in zip(sequence, ordering):
+                    if item not in group: break # missing item
+                else: break # every item was found in its group
+            else: return False # every ordering led to at least one missing item
+        return True # every sequence found at least one good ordering
 
     # Count how many cube arrangements can display all numbers
-    faces = string.digits.replace('9', '6')
-    return sum(is_valid(cubes) for cubes in combinations(combinations(faces, 6), n))
+    faces = string.digits.translate(rule) # don't deuplicate here
+    cubes = combinations(faces, 6) # some cubes will be repeated due to 6/9
+    arrangements = combinations_with_replacement(map(set, cubes), n)
+    return sum(is_valid(arrangement) for arrangement in arrangements)
 
 def problem_91(n=50):
     """
@@ -1903,49 +2208,35 @@ def problem_91(n=50):
 
     Then the number of right triangles is the number of integer coordinates
     (x1 - y1 * k/d, y1 + x1 * k/d) within the bounds, where k is a positive integer
-    and d = gcd(x1, y1). Of these, exactly n^2 of these triangles have y1 = 0.
+    and d = gcd(x1, y1). Of these, exactly n^2 of these triangles have y1 = y2 = 0.
 
-    This same analysis gives us the number of right triangles with right angle at Q.
+    A similar analysis gives us the same number of right triangles with
+    right angle at Q, where exactly n^2 of these triangles have x1 = x2 = 0.
     """
-    count = 0
-    for x1 in range(1, n + 1):
-        for y1 in range(1, n + 1):
-            d = gcd(x1, y1)
-            count += 2 * min(d * (n - y1) // x1, d * x1 // y1)
-
-    return count + 3*n*n
+    return 3*n*n + 2*sum(
+        min((d := gcd(x1, y1)) * x1 // y1, d * (n - y1) // x1)
+        for x1 in range(1, n + 1)
+        for y1 in range(1, n + 1)
+    )
 
 def problem_92(n=7):
     """
-    Given chains of integers where each term is followed by the sum of the squares
-    of its digits, find the number of starting numbers with at most n digits
-    that end in 89.
+    Given chains of positive integers where each term is followed by the
+    sum of the squares of its digits, find the number of starting integers
+    below 10^n that arrive at 89.
 
     Notes
     -----
     Every integer with the same digits is followed by the same chain.
     If the digit counts are a_1, ..., a_k, then there are
     (a_1 + ... + a_k)! / (a_1! * ... * a_k!) such integers.
+
+    Therefore we only need to consider one integer for each unique set of digits.
     """
     digit_values = {str(d): d*d for d in range(10)}
-    base_chains = {0: (0,), 1: (1,), 89: (89,)}
-
-    @functools.cache
-    def chain(k):
-        if k in base_chains:
-            return base_chains[k]
-        else:
-            k = sum(map(digit_values.__getitem__, str(k)))
-            return (k,) + chain(k)
-
-    count = 0
-    for digits in itertools.combinations_with_replacement(string.digits, n):
-        k = int(''.join(digits))
-        if chain(k)[-1] == 89:
-            digit_counts = Counter(digits).values()
-            count += factorial(sum(digit_counts)) // prod(map(factorial, digit_counts))
-
-    return count
+    end = lambda x: x if x in (0, 1, 89) else end(sum(map(digit_values.get, str(x))))
+    end = cache(end)
+    return sum(count for a, count in e.digit_combinations(n) if end(a) == 89)
 
 def problem_93(n=4):
     """
@@ -1953,31 +2244,50 @@ def problem_93(n=4):
     target values 1 ... n can be generated using each digit exactly once
     and the operations (+, -, *, /).
 
-    TODO: generalize to arbitrary number of digits
+    Notes
+    -----
+    An expression of binary operators can be represented as a binary tree,
+    where the leaves are the input digits and the internal nodes are the operations.
+
+    Given n leaves, there are C_{n-1} unique structures for binary trees,
+    where C_i is the i-th Catalan number.
+
+    We can reduce the number of trees substantially by treating all operations
+    as commutative. To do this, we must also include two new binary operators:
+    rsub(x, y) := y - x and rdiv(x, y) := y / x.
     """
-    from operator import add, sub, mul, truediv
-    operations = (cache(add), cache(sub), cache(mul), cache(truediv))
-    best_group, best_sequence = None, []
+    nan = float('nan')
 
-    # Iterate through all subsets of n digits
-    for group in combinations(range(1, 10), n):
-        # Generate all possible target values
-        targets = set()
-        for a, b, c, d in permutations(group):
-            for op1, op2, op3 in itertools.product(operations, repeat=n-1):
-                targets.add(op3(op2(op1(a, b), c), d))
-                targets.add(op3(op1(a, b), op2(c, d)))
+    @cache
+    def get_targets(variables: frozenset):
+        if (k := len(variables)) <= 1: return variables
+        tiebreaker = next(iter(variables)) # avoids double-counting commutative splits
+        return frozenset(
+            z
+            for i in range(1, k // 2 + 1)
+            for subset in map(frozenset, combinations(variables, i))
+            if i != k - i or tiebreaker in subset
+            for left, right in ((subset, variables - subset),)
+            for x, y in itertools.product(get_targets(left), get_targets(right))
+            for z in (x + y, x - y, y - x, x * y, x / (y or nan), y / (x or nan))
+        )
 
-        # Get sequence of consecutive target values, starting from 1
-        sequence = range(1, next(i for i in itertools.count(1) if i not in targets))
-        if len(sequence) > len(best_sequence):
-            best_group, best_sequence = group, sequence
+    # Account for floating point precision issues
+    def smoothing(group):
+        return frozenset(round(x) for x in group if x > 0 and abs(x - round(x)) < 1e-9)
 
-    return ''.join(map(str, best_group))
+    # Find longest sequence of consecutive target values starting from 1
+    get_sequence = lambda x: range(1, next(i for i in itertools.count(1) if i not in x))
+    best_group = max(
+        map(frozenset, combinations(range(1, 10), n)),
+        key=lambda group: len(get_sequence(smoothing(get_targets(group)))),
+    )
 
-def problem_94(N=int(1e9)):
+    return ''.join(map(str, sorted(best_group)))
+
+def problem_94(N=10**9):
     """
-    Find the number of triangles with side lengths of the form
+    Find the sum of perimeters of all triangles with side lengths of the form
     (a, a, a ± 1) with integer area and perimeter not exceeding N.
 
     Notes
@@ -1995,96 +2305,94 @@ def problem_94(N=int(1e9)):
     This also reduces to the same Pell equation x^2 - 3y^2 = 1.
     """
     total = 0
-    for x, y in util.pell(3):
+    for x, y in e.pell(3):
         if 2*x - 2 > N:
             break
-        if x % 3 == 1 and 3 <= (perimeter := 2*x + 2) <= N:
+        if x % 3 == 1 and 4 < (perimeter := 2*x + 2) <= N:
             total += perimeter
-        if x % 3 == 2 and 3 <= (perimeter := 2*x - 2) <= N:
+        elif x % 3 == 2 and 4 < (perimeter := 2*x - 2) <= N:
             total += perimeter
 
     return total
 
-def problem_95(N=int(1e6)):
+def problem_95(N=1_000_000):
     """
     Find the smallest member of the longest aliquot cycle with no element exceeding N.
+
+    Notes
+    -----
+    This is equivalent to finding the longest cycle in the functional graph
+    defined by the aliquot sum function s(n) = σ(n) - n.
     """
-    divisor_sums = util.get_divisor_sums(N, proper=True)
-    aliquot_cycles = {}
+    if N < 6:
+        return None # no cycles exist for N < 6
 
-    for n in range(1, N):
-        # Generate chain
-        chain = [n]
-        while (k := chain[-1]) not in chain[:-1] and k <= N and k not in aliquot_cycles:
-            chain.append(divisor_sums[chain[-1]])
+    aliquot_sums = e.aliquot_sum_range(N + 1)
+    cycle_lengths, cycle_minimums = defaultdict(int), defaultdict(lambda: float('inf'))
 
-        # Check for cycle
-        i = chain.index(chain[-1])
-        for k in chain[:i]:
-            aliquot_cycles[k] = []
-        for k in chain[i:-1]:
-            aliquot_cycles[k] = chain[i:-1]
+    def on_cycle(cycle_start, cycle_current):
+        cycle_lengths[cycle_start] += 1
+        cycle_minimums[cycle_start] = min(cycle_minimums[cycle_start], cycle_current)
 
-    return min(max(aliquot_cycles.values(), key=len))
+    e.find_functional_cycles(
+        f=aliquot_sums.__getitem__,
+        search=range(1, N + 1),
+        domain=range(1, N + 1),
+        on_cycle=on_cycle,
+    )
+
+    max_cycle_length = max(cycle_lengths.values())
+    return min(
+        cycle_minimums[cycle]
+        for cycle, length in cycle_lengths.items()
+        if length == max_cycle_length
+    )
 
 def problem_96(path='data/problem_96.txt'):
     """
     Find the sum of the first three digits of the solutions
     to the given sudoku puzzles.
+
+    Notes
+    -----
+    We can model sudoku as a constraint satisfaction problem,
+    where each cell is a variable and the constraints for each cell are
+    based on the other cell values in the same row, column, or 3x3 subgrid.
     """
-    # Get indices of all cells in the same row, column, or box as the cell at (r, c)
-    eliminate_idx = {}
-    for r, c in itertools.product(range(9), range(9)):
-        idx = {(3*(r//3) + i, 3*(c//3) + j) for i in range(3) for j in range(3)} # box
-        idx |= {(i, c) for i in range(9)} # row
-        idx |= {(r, j) for j in range(9)} # column
-        eliminate_idx[r, c] = list(idx)
+    # Precompute "neighbors" for each cell to speed up constraint checking
+    neighbors = {
+        (r, c): {
+            (rr, cc)
+            for rr in range(9) for cc in range(9)
+            if (rr, cc) != (r, c) # not the same cell
+            if rr == r or cc == c # and same row or same column
+            or (rr // 3, cc // 3) == (r // 3, c // 3) # or same subgrid
+        }
+        for r in range(9) for c in range(9)
+    }
 
-    def solve_sudoku(grid: list[list[int]]) -> list[list[int]]:
-        # Find the empty cell with the fewest possible options
-        all_options = set(range(1, 10))
-        best_cell, best_options = None, all_options
-        for (r, c) in itertools.product(range(9), range(9)):
-            if grid[r][c] == 0:
-                options = all_options - {grid[i][j] for i, j in eliminate_idx[r, c]}
-                if len(options) < len(best_options):
-                    best_cell, best_options = (r, c), options
-                if len(options) <= 1:
-                    break
-
-        # Check if puzzle is already solved
-        if not best_cell: return grid
-
-        # Try each option
-        r, c = best_cell
-        for option in best_options:
-            grid[r][c] = option
-            if solve_sudoku(grid):
-                return grid
-
-        grid[r][c] = 0
-        return None
-
-    # Read sudoku puzzles from file
+    # Load puzzles
     with open(path, 'r') as file:
-        lines = [line.strip() for line in file.readlines()]
-        puzzles = [lines[i:i+9] for i in range(1, len(lines), 10)]
-        puzzles = [[list(map(int, line)) for line in puzzle] for puzzle in puzzles]
+        puzzles = [
+            {(r, c): int(d) or None
+            for r, row in enumerate(map(str.strip, block[1:10]))
+            for c, d in enumerate(row)}
+            for block in zip(*[iter(file)] * 10)
+        ]
 
     # Solve puzzles
-    total = 0
-    for puzzle in puzzles:
-        solution = solve_sudoku(puzzle)
-        total += int(''.join(map(str, solution[0][:3])))
+    digits = set(range(1, 10))
+    candidates = lambda cell, grid: digits - {grid[loc] for loc in neighbors[cell]}
+    solutions = (e.csp(grid, candidates) for grid in puzzles)
 
-    return total
+    return sum(int(''.join(str(sol[0, c]) for c in range(3))) for sol in solutions)
 
 def problem_97(a=28433, n=7830457, k=10):
     """
     Find the last k digits of a * 2^n + 1.
     """
-    m = 10**k
-    return (a * pow(2, n, mod=m) + 1) % m
+    mod = 10**k
+    return (a * pow(2, n, mod=mod) + 1) % mod
 
 def problem_98(path='data/problem_98.txt'):
     """
@@ -2094,84 +2402,92 @@ def problem_98(path='data/problem_98.txt'):
 
     Notes
     -----
-    Each pair (a, b) of n-length anagrams can be represented by an n-length
-    mapping of indices such that a[mapping[i]] = b[i] for i = 0, 1, ..., n - 1.
+    Each sequence can be identified by a "signature" based on the first
+    occurrence of each unique element. For instance, the word "BEER"
+    can be represented by the signature (0, 1, 1, 3).
 
-    We simply need to find such a mapping that appears in both
-    word anagrams and square anagrams.
+    This can also be applied to anagrams, which can be represented
+    generically as ordered pairs of signatures that are permutations of each other.
+    For instance, the anagram "CARE" → "RACE" can be represented by the pair
+    ((0, 1, 2, 3), (2, 0, 1, 3)).
+
+    Then we need only to examine square number anagram pairs with matching signatures.
     """
-    def get_anagram_mappings(iterable) -> dict[tuple, tuple[str, str]]:
-        mappings = defaultdict(list)
-        for group in util.group_permutations(map(str, iterable)):
-            for a, b in permutations(group, 2):
-                index = {value: i for i, value in enumerate(a)}
-                key = tuple(map(index.__getitem__, b))
-                mappings[key].append((a, b))
+    def signature(s: str, index = None) -> tuple:
+        return tuple(map(index or s.index, s))
 
-        return mappings
-
-    # Find word anagram mappings
+    # Find word anagram pairs
     with open(path) as file:
         words = [s.strip('"') for s in file.read().split(',')]
-        word_mappings = get_anagram_mappings(words)
+        anagram_pairs = {
+            (signature(w1), signature(w2, index=w1.index))
+            for group in e.group_permutations(words)
+            for w1, w2 in permutations(group, 2)
+        }
 
-    # Find square anagram mappings
-    squares = (i*i for i in range(isqrt(10**max(map(len, word_mappings)))))
-    square_mappings = get_anagram_mappings(squares)
+    # Generate square numbers grouped by signature
+    max_anagram_length = max(len(pair[0]) for pair in anagram_pairs)
+    squares = e.squares(low=0, high=10**max_anagram_length - 1)
+    squares = e.group_by_key(map(str, squares), key=signature)
 
-    # Filter square anagram pairs whose mapping also forms word anagram pair
-    square_anagrams = [
-        pairs for key, pairs in square_mappings.items()
-        if key in word_mappings
-    ]
-
-    # Find the largest square
-    return max(int(x) for pairs in square_anagrams for pair in pairs for x in pair)
+    # Find square anagram pairs corresponding to word anagram pairs
+    return max(
+        n
+        for signature_1, signature_2 in anagram_pairs
+        for square in squares[signature_1]
+        if not (s := ''.join(square[i] for i in signature_2)).startswith('0')
+        if e.is_square(n := int(s))
+    )
 
 def problem_99(path='data/problem_99.txt'):
     """
-    Given a sequence of (x, y) pairs, find the index that maximizes x^y.
+    Given a sequence of (a, b) pairs, find the index that maximizes a^b.
 
     Notes
     -----
-    For any positive x, y we have x > y if and only if log(x) > log(y).
+    For any positive a, b we have a > b if and only if log(a) > log(b).
+    Therefore, the index that maximizes a^b also maximizes log(a^b) = b * log(a).
     """
     with open(path) as file:
-        numbers = [map(int, line.split(',')) for line in file.readlines()]
-        logs = [b * log(a) for a, b in numbers]
-        return max(range(len(logs)), key=logs.__getitem__) + 1
+        numbers = (map(int, line.split(',')) for line in file.readlines())
+        logs = (b * log(a) for a, b in numbers)
+        argmax, _ = max(enumerate(logs, start=1), key=lambda x: x[1]) # 1-indexed
+        return argmax
 
-def problem_100(N=int(1e12)):
+def problem_100(N=10**12):
     """
     Consider a set of n discs, b of which are blue.
-    Find the smallest n > N such that there exists some b < n where the
+    Find the smallest b such that there exists some n > N where the
     probability of drawing two blue discs without replacement is exactly 1/2.
 
     Notes
     -----
     If n is total number of discs and b is number of blue discs,
-    then we want integer solutions to n^2 - n - 2b^2 + 2b = 0.
+    the probability of drawing two blue discs is (b/n) * ((b-1)/(n-1)) = 1/2.
+
+    Thus we need to find integer solutions to n^2 - n - 2b^2 + 2b = 0,
+    or equivalently to 4n^2 - 4n - 8b^2 + 8b = 0.
 
     Let x = 2n - 1 and y = 2b - 1. Then this reduces to the negative
     Pell equation x^2 - 2y^2 = -1.
     """
-    for x, y in util.pell(2, N=-1):
+    for x, y in e.pell(D=2, N=-1):
         if (x + 1) // 2 > N:
             return (y + 1) // 2
 
-def problem_101(coefficients=[1, -1, 1, -1, 1, -1, 1, -1, 1, -1, 1]):
+def problem_101(coefficients=(1, -1, 1, -1, 1, -1, 1, -1, 1, -1, 1)):
     """
     Find the sum of OP(k, k + 1) such that OP(k, k + 1) != f(k),
     where f(n) is the polynomial defined by the given coefficients,
     and OP(k, n) is the (k-1)-th order polynomial approximation.
     """
-    f = util.polynomial(coefficients)
+    f = e.polynomial(coefficients)
     values = [f(n) for n in range(1, len(coefficients) + 2)]
 
     def OP(k, n):
         A = [[i**j for j in range(k)] for i in range(1, k + 1)]
-        coefs = list(map(int, util.linear_solve(A, values[:k])))
-        return util.polynomial(coefs)(n)
+        coefs = list(map(int, e.linear_solve(A, values[:k])))
+        return e.polynomial(coefs)(n)
 
     terms = [OP(k, k + 1) for k in range(1, len(coefficients) + 1)]
     return sum(term for term, value in zip(terms, values[1:]) if term != value)
@@ -2201,74 +2517,40 @@ def problem_102(path='data/problem_102.txt'):
 
     return count
 
-def problem_103():
+def problem_103(n=7):
     """
-    Sum of any 2 elements is greater than the 3rd.
+    Find the minimum-sum special sum set of size n, where any two non-empty
+    disjoint subsets have different sums, and where any larger subset has
+    larger sum than a smaller subset.
 
-    Given a < b < c, we must have:
+    Notes
+    -----
+    We have the following two constraints:
 
-    b < c < a + b < 2b
+        1) For any two disjoint non-empty subsets B, C of A: sum(B) != sum(C)
+        2) For any such B, C with |B| > |C|: sum(B) > sum(C)
 
+    We can check the 2nd constraint efficiently by computing prefix sums
+    and suffix sums of the sorted set, and ensuring that each prefix sum
+    of k elements is greater than the corresponding suffix sum of (k - 1) elements.
+    """
+    def constraint(A):
+        # Check constraint 2
+        prefix_sums = list(itertools.accumulate(A))
+        suffix_sums = list(itertools.accumulate(reversed(A)))
+        for x, y in zip(prefix_sums[1:], suffix_sums):
+            if x <= y:
+                return False
 
+        # Check constraint 1
+        for B, C in e.disjoint_subset_pairs(A, equal_size_only=True):
+            if sum(B) == sum(C):
+                return False
 
-    a, b, c, d, e
+        return True
 
-    a + b > e
-
-    a + b + c > d + e
-
-    4, 5, 6
 
     
-
-
-    a + b > c, d, e, etc
-
-    2b > a + b > max element
-
-    ...
-
-    1, 2, 3 ... doesn't work
-    2, 3, 4 got it
-
-    2 + 3 > 5 nope
-    3 + 4 > 5 ok
-    3, 4, 5, 6 ... 3 + 6 = 4 + 5 ... doesn't work
-    3, 5, 6, 7 ok
-
-    3 + 5 = 8 ... so go to 4
-    4, 5, 6, 7, 8 ... but 4 + 5 + 6 = 7 + 8 ... doesn't work
-    4, 6, 7, 8, 9 ... but 4 + 6 + 7 = 8 + 9 ... doesn't work
-    5, 
-
-    11, 17, 20, 22, 23, 24
-
-    can we do better?
-
-    1 zero shot combo
-    62 one shot combos
-    (63 choose 2) two shot combos
-    21 doubles (final shot)
-
-    total: (1 + 62 + (63 choose 2)) * 21
-    
-    number of ways to get 21
-
-    82 other scores
-    """
-    pass
-
-def problem_109(threshold=100):
-    values = [
-        50,
-        *range(1, 21),
-        *(2*i for i in range(1, 21)),
-        *(3*i for i in range(1, 21)),
-    ]
-
-    doubles = [50, *(2*i for i in range(1, 21))]
-    print(doubles)
-    print(values)
 
 def problem_104(digits=123456789):
     """
@@ -2277,30 +2559,63 @@ def problem_104(digits=123456789):
 
     Notes
     -----
-    The k-th Fibonacci number is approximately F(k) ≈ ϕ^k / sqrt(5),
+    The k-th Fibonacci number is approximately F(k) ≈ ϕ^k / √5,
     where ϕ is golden ratio.
 
-    Its first n digits are given by int(10**(n - 1 + log10(F(k)) % 1)),
-    where log10(F(k)) ≈ k * log10(ϕ) - log10(sqrt(5)).
+    Its first n digits are given by int(10**(n - 1 + {log10(F(k))})),
+    where log10(F(k)) ≈ k * log10(ϕ) - log10(√5) and {x} denotes the
+    fractional part of x.
     """
-    digits = sorted(str(digits))
-    num_digits = len(digits)
+    num_digits = e.digit_count(digits)
     mod = 10**num_digits
     log_phi = log((1 + sqrt(5)) / 2, 10)
     log_sqrt_5 = log(sqrt(5), 10)
-    is_permutation = lambda x: sorted(str(x)) == digits
 
     for k in itertools.count():
         # Check leading digits
         log_F = k * log_phi - log_sqrt_5
-        leading_digits = int(10**(num_digits - 1 + log_F % 1))
-        if not is_permutation(leading_digits):
+        leading_digits = int(10**(num_digits - 1 + (log_F % 1)))
+        if not e.is_permutation(digits, leading_digits):
             continue
 
         # Check trailing digits
-        trailing_digits = util.fibonacci(k, mod=mod)
-        if is_permutation(trailing_digits):
+        trailing_digits = e.fibonacci(k, mod=mod)
+        if e.is_permutation(digits, trailing_digits):
             return k
+
+def problem_105(path='data/problem_105.txt'):
+    """
+    TODO: writeup
+    """
+    def constraint(A):
+        # Check constraint 2
+        prefix_sums = list(itertools.accumulate(A))
+        suffix_sums = list(itertools.accumulate(reversed(A)))
+        for x, y in zip(prefix_sums[1:], suffix_sums):
+            if x <= y:
+                return False
+
+        # Check constraint 1
+        for B, C in e.disjoint_subset_pairs(A, equal_size_only=True):
+            if sum(B) == sum(C):
+                return False
+
+        return True
+
+    with open(path) as file:
+        sets = [tuple(sorted(map(int, line.split(',')))) for line in file.readlines()]
+        return sum(sum(A) for A in sets if constraint(A))
+
+def problem_106(n=12):
+    """
+    TODO: writeup
+    """
+    return sum(
+        1
+        for B, C in e.disjoint_subset_pairs(range(n), equal_size_only=True)
+        if any(b < c for b, c in zip(B, C))
+        if any(b > c for b, c in zip(B, C))
+    )
 
 def problem_107(path='data/problem_107.txt'):
     """
@@ -2314,7 +2629,7 @@ def problem_107(path='data/problem_107.txt'):
     # Find minimum spanning tree
     nodes = range(len(graph))
     edges = [(u, v) for u, v in itertools.combinations(nodes, 2) if graph[u][v] != 0]
-    minimum_spanning_tree = util.kruskal(nodes, edges, lambda u, v: graph[u][v])
+    minimum_spanning_tree = e.kruskal(nodes, edges, lambda u, v: graph[u][v])
 
     # Calculate weight difference
     initial_weight = sum(graph[u][v] for u, v in edges)
@@ -2323,8 +2638,8 @@ def problem_107(path='data/problem_107.txt'):
 
 def problem_108(K=1000):
     """
-    Find the smallest value of n such that the number of distinct solutions
-    to 1/x + 1/y = 1/n exceeds K.
+    Find the smallest value of n such that the number of distinct integer
+    solutions to 1/x + 1/y = 1/n exceeds K.
 
     Notes
     -----
@@ -2334,7 +2649,7 @@ def problem_108(K=1000):
     It also follows that ⌈log(2k - 1) / log(3)⌉ is an upper bound on the
     number of unique prime factors.
     """
-    prime_list = list(util.primes(num=ceil(log(2*K - 1, 3))))
+    prime_list = list(e.primes(num=ceil(log(2*K - 1, 3))))
     prev_k = 0
     heap = [(1, 1, [0] * len(prime_list))]
     while True:
@@ -2350,12 +2665,21 @@ def problem_108(K=1000):
                 new_exponents[i] += 1
                 heappush(heap, (new_n, new_k, new_exponents))
 
-def problem_110(K=int(4e6)):
+def problem_110(K=4_000_000):
     """
     Find the smallest value of n such that the number of distinct solutions
     to 1/x + 1/y = 1/n exceeds K.
     """
     return problem_108(K)
+
+def problem_112(ratio=0.99):
+    is_bouncy = lambda n: list(n) != sorted(n) and list(n) != sorted(n, reverse=True)
+    count = 0
+    for n in itertools.count(start=1):
+        if is_bouncy(str(n)):
+            count += 1
+        if count == n * ratio:
+            return n
 
 def problem_118(digits=range(1, 10)):
     """
@@ -2390,7 +2714,7 @@ def problem_118(digits=range(1, 10)):
         for subset in partition:
             perms = permutations(subset) # get digit permutations
             perms = map(int, map(''.join, perms)) # convert to integers
-            perms = filter(util.is_prime, perms) # filter for primes
+            perms = filter(e.is_prime, perms) # filter for primes
             prime_permutations.append(perms)
 
         prime_sets += itertools.product(*prime_permutations)
@@ -2413,7 +2737,7 @@ def problem_119(n=30):
             max_exp = floor(k / math.log10(base))
             for exp in range(min_exp, max_exp + 1):
                 power = base**exp
-                if base == util.get_digit_sum(power):
+                if base == e.digit_sum(power):
                     digit_power_sums.append(power)
 
         # Check if we have generated enough digit power sums
@@ -2514,7 +2838,7 @@ def problem_122(N=200):
     # print(num_multiplications[12509])
     return sum(num_multiplications[n] for n in range(1, N + 1))
 
-def problem_123(N=int(1e14)):
+def problem_123(N=10**14):
     """
     Find the smallest index n for which the residue
     (p_n - 1)^n + (p_n + 1)^n mod (p_n)^2 exceeds N.
@@ -2533,7 +2857,7 @@ def problem_123(N=int(1e14)):
         p_max *= 2
 
     # Find residue exceeding N
-    for n, p in enumerate(util.primes(high=p_max), start=1):
+    for n, p in enumerate(e.primes(high=p_max), start=1):
         r = 2 if n % 2 == 0 else 2 * n * p
         if r > N:
             return n
@@ -2543,10 +2867,11 @@ def problem_124(N=100000, k=10000):
     Find the k-th positive integer not exceeding N when sorted by rad(n),
     where rad(n) is the product of distinct prime factors of n.
     """
-    rad = lambda n: prod(set(util.prime_factors(n)))
-    return sorted(range(N // 2, N + 1), key=rad)[k - 1]
+    rad = [1] * (N + 1)
+    for p in e.primes(high=N): rad[p::p] = [x * p for x in rad[p::p]]
+    return sorted(range(1, N + 1), key=lambda i: rad[i])[k - 1]
 
-def problem_125(N=int(1e8)):
+def problem_125(N=10**8):
     """
     Find the sum of all the numbers less than N that are both palindromic
     and can be written as the sum of consecutive squares.
@@ -2557,10 +2882,238 @@ def problem_125(N=int(1e8)):
         for j in range(i + 1, isqrt(N)):
             sum_of_squares += j*j
             if sum_of_squares >= N: break
-            if util.is_palindrome(sum_of_squares):
+            if e.is_palindrome(sum_of_squares):
                 values.add(sum_of_squares)
 
     return sum(values)
+
+def problem_129(N=1_000_000):
+    for n in itertools.count(start=2):
+        if gcd(n, 10) == 1:
+            k = e.multiplicative_order(10, n)
+            if k is not None and k > N:
+                print(k, n)
+                return n
+
+def problem_130(m=25):
+    """
+    Notes
+    -----
+    Consider n > 5 with gcd(n, 10) = 1. Then we can infer that
+    R(k) = (10^k - 1) / 9 = 0 mod n if and only if 10^k = 1 mod n, which
+    is true exactly when A(n) = ord(10, n) divides k.
+    """
+    # sum,count,n = 0,0,5
+
+    # while count < m:
+    #     while e.is_prime(n): n += 2
+    #     if pow(10,n-1,9*n) == 1:            
+    #         sum,count = sum+n, count+1, 
+    #     n += 2
+    # return sum
+
+    total, count = 0, 0
+    for n in itertools.count(start=6):
+        if n % 3 == 0: continue
+        if gcd(n, 10) == 1:
+            k = e.multiplicative_order(10, n)
+            if (n - 1) % k == 0 and not e.is_prime(n):
+                total += n
+                count += 1
+                if count == m: return total
+
+def problem_131(N=1_000_000):
+    """
+    Find the number of primes p below N such that there exists
+    an integer n > 0 where n^3 + n^2 * p is a perfect cube.
+
+    Notes
+    -----
+    We can write n^3 + n^2 * p = n^2 (n + p) = m^3 for some prime p.
+    The product of coprime integers is a perfect cube if and only if
+    each integer is a perfect cube, so we consider gcd(n^2, n + p).
+
+    Any prime dividing n^2 must also divide n, and any prime dividing
+    both n and n + p must also divide their difference p. Thus, either
+    p | n or gcd(n^2, n + p) = 1.
+
+    If p | n, then let n = kp for some integer k. Then our expression
+    becomes k^2 * p^3 * (k + 1) = m^3. Since p is prime, we have
+    k^2 * (k + 1) = a^3 for integer a = m/p. As gcd(k^2, k + 1) = 1,
+    this implies both k and k + 1 must be perfect cubes, which is impossible.
+
+    Thus we have gcd(n^2, n + p) = 1, and therefor that both n^2 and n + p
+    are perfect cubes.
+
+    Let n = a^3 and n + p = b^3 for some integers a, b > 0. Then we have:
+    p = b^3 - a^3 = (b - a)(b^2 + ab + a^2), and since p is prime, this
+    implies that b - a = 1.
+
+    Thus p is given by the difference of consecutive cubes.
+    """
+    primes = (p for i in itertools.count() if e.is_prime(p := 3*i*i + 3*i + 1))
+    return sum(1 for _ in itertools.takewhile(lambda p: p < N, primes))
+
+def problem_132(n=9, m=40):
+    """
+    Find the sum of the first m primes p such that R(10^n) is divisible by p,
+    where R(k) = (10^k - 1) / 9.
+
+    Notes
+    -----
+    It is clear that primes p = 2, 5 can never divide any repunit R(k),
+    and that p = 3 cannot divide repunits R(10^n) whose digit counts
+    are powers of 10 and thus not multiples of 3.
+
+    Let p >= 7 be a prime with gcd(p, 10) = 1. Then we can infer that
+    R(k) = (10^k - 1) / 9 = 0 mod p if and only if 10^k = 1 mod p, which
+    is true exactly when ord(10, p) divides k.
+    """
+    power = 10**n
+    primes = (p for p in e.primes(low=7) if power % e.multiplicative_order(10, p) == 0)
+    return sum(islice(primes, m))
+
+def problem_133(N=100_000):
+    """
+    Find the sum of all primes p < N that never divide any repunit R(10^n),
+    where R(k) = (10^k - 1) / 9.
+
+    Notes
+    -----
+    It is clear that primes p = 2, 5 can never divide any repunit R(k),
+    and that p = 3 cannot divide repunits R(10^n) whose digit counts
+    are powers of 10 and thus not multiples of 3.
+
+    Let p >= 7 be a prime with gcd(p, 10) = 1. Then we can infer that
+    R(k) = (10^k - 1) / 9 = 0 mod p if and only if 10^k = 1 mod p.
+
+    Then R(10^n) = 0 mod p if 10^(10^n) = 1 mod p, which is never true
+    if ord(10, p) has any prime factor other than 2 or 5.
+    """
+    total = 2 + 3 + 5
+    for p in e.primes(low=7, high=N):
+        k = e.multiplicative_order(10, p)
+        while k % 2 == 0: k //= 2
+        while k % 5 == 0: k //= 5
+        if k > 1: total += p
+
+    return total
+
+def problem_134(N=1_000_000):
+    """
+    Find the sum of the smallest positive integers n in which the last
+    digits are formed by those of p and the number is divisible by q,
+    for each consecutive prime pair (p, q) where 5 <= p <= N.
+
+    Notes
+    -----
+    We are looking for n such that n = p (mod 10^k) and n = 0 (mod q),
+    where k is the number of digits in p.
+
+    We can write n = p + a * 10^k = 0 (mod q) for some integer a,
+    or equivalently a * 10^k = -p = q - p (mod q).
+    If we find the modular inverse b = (10^k)^(-1) (mod q),
+    we can solve directly for a = b * (q - p) (mod q).
+    """
+    primes = list(e.primes(low=5, high=e.next_prime(N)))
+    return sum(
+        p + a*t
+        for p, q in zip(primes, primes[1:])
+        for t in (10**(e.digit_count(p)),)
+        for a in (pow(t, -1, q) * (q - p) % q,)
+    )
+
+def problem_135(N=1_000_000, k=10):
+    """
+    Find how many values of 0 < n < N have exactly k solutions to the equation
+    x^2 - y^2 - z^2 = n, where x, y, z > 0 form an arithmetic progression.
+
+    Notes
+    -----
+    We can represent this as (y + c)^2 - y^2 - (y - c)^2 = y(4c - y) = n.
+    For any pair of factors d * y = n, we need c = (d + y) / 4 and y > c > 0.
+
+    We get positive integer solutions for each (y, c) pair such that
+    y/4 < c < y and y(4c - y) < N.
+    """
+    num_solutions = [0] * N
+    for y in range(1, N):
+        for c in range((y + 3) // 4, y):
+            n = y * (4*c - y)
+            if n >= N: break
+            num_solutions[n] += 1
+
+    return num_solutions.count(k)
+
+def problem_136(N=50_000_000):
+    """
+    Find how many values of 0 < n < N have exactly 1 solution to the equation
+    x^2 - y^2 - z^2 = n, where x, y, z > 0 form an arithmetic progression.
+
+    Notes
+    -----
+    We can represent this as (y + c)^2 - y^2 - (y - c)^2 = y(4c - y) = n.
+    For any pair of factors d * y = n, we need c = (d + y) / 4 and y > c > 0.
+    We can show that there are three cases that yield exactly one solution:
+
+        1) n = p where p ≡ 3 (mod 4)
+        2) n = 4p where p is an odd prime (or p = 1)
+        3) n = 16p where p is an odd prime (or p = 1)
+
+    We can also count them efficiently without iterating over all primes < N.
+    Let π(x) be the prime counting function, and let χ_4(x) be the Dirichlet character
+    modulo 4, which we know is a completely multiplicative function.
+    Then for any N > 2 the number of primes p <= N with p ≡ 3 (mod 4) is given by:
+
+        (π(N) - 1 - Σ_{p <= N} χ_4(p)) / 2
+
+    And our total count n <= N is given by: π(N/4) + π(N/16) + (π(N) - π_4(N) - 1) / 2.
+    """
+    # Define prime counting functions
+    chi4 = lambda x: 0 if x % 2 == 0 else 1 if x % 4 == 1 else -1
+    Chi4 = lambda x: 1 if x % 4 in (1, 2) else 0
+    count_primes_3_mod_4 = lambda x: (
+        (e.count_primes(x) - e.sum_primes(x, chi4, Chi4) - (x > 2)) // 2
+    )
+
+    # Count primes
+    count = (N > 4) + (N > 16) # account for n = 4 and n = 16 cases
+    count += e.count_primes((N - 1) // 4) - 1 # n = 4p, exclude p = 2
+    count += e.count_primes((N - 1) // 16) - 1 # n = 16p, exclude p = 2
+    count += count_primes_3_mod_4(N - 1) # n = p, p ≡ 3 (mod 4)
+
+    return count
+
+def problem_137(i=15, j=15, a=0, b=1):
+    """
+    Find the sum of the i-th through j-th values of A(x) such that x is rational
+    and A(x) = G(x) - G_0 is a positive integer, where G_i = G_{i-1} + G_{i-2}
+    is the generalized Fibonacci sequence with G_0 = a and G_1 = b, and with
+    G(x) = G_0 + G_1 x + G_2 x^2 + ... as its generating function.
+
+    Notes
+    -----
+    We are looking for rational x such that A(x) = G(z) - G_0 is a positive integer.
+    It can be shown that the generating function for the generalized Fibonacci
+    sequence where G_0 = a and G_1 = b is given by:
+
+        G(z) = (a + (b - a) z) / (1 - z - z^2)
+
+    The quadratic formula tells us that G(z) - k = 0 has rational roots only when
+    Δ = 5k^2 + 2k(b - 3a) + (b - a)^2 = Y^2 is a perfect square.
+
+    Thus we need to find integer solutions to:
+
+        5k^2 + 2k(b - 3a) + (b - a)^2 - Y^2 = 0
+
+    or equivalently to 25k^2 + 2k(b - 3a) + 5(b - a)^2 - 5Y^2 = 0.
+
+    Let X = 5k - 3a + b. Then this reduces to the Pell equation
+    X^2 - 5Y^2 = 4a^2 + 4ab - 4b^2.
+    """
+    solutions = e.pell(D=5, N=(4*a*a + 4*a*b - 4*b*b))
+    nuggets = ((x + 3*a - b) // 5 - a for x, _ in solutions if (x + 3*a - b) % 5 == 0)
+    return sum(islice(nuggets, i, j + 1)) # skip trivial solution
 
 def problem_138(n=12):
     """
@@ -2575,28 +3128,53 @@ def problem_138(n=12):
     Let x = (5/2)b ± 2. Then this reduces to the negative Pell equation
     x^2 - 5L^2 = -1.
     """
-    generator = util.pell(5, N=-1)
+    generator = e.pell(D=5, N=-1)
     solutions = [next(generator) for _ in range(n + 1)]
     return sum(L for _, L in solutions[1:]) # skip trivial solution
 
-def problem_139(N=int(1e8)):
+def problem_139(N=100_000_000):
     """
     Find the number of Pythagorean triples (a, b, c) such that
-    a + b + c < N and a - b divides c.
+    a + b + c < N and (a - b) divides c.
 
     Notes
     -----
-    TODO: optimize
+    Let (a, b, c) be a primitive Pythagorean triple.
+
+    If (a - b) divides c, then (a - b)^2 = (c^2 - 2ab) divides c^2,
+    and so (c^2 - 2ab) must must also divide 2ab. As a common divisor
+    of 2ab and c^2, we must also have (c^2 - 2ab) divides gcd(2ab, c^2).
+
+    Since (a, b, c) is a primitive triple, gcd(ab, c^2) = 1, and since c
+    must be odd, gcd(2ab, c^2) = 1. It follows that we must have (a - b)^2 = 1,
+    and thus (a - b) = ±1.
+
+    By Euclid's formula we have a = m^2 - n^2, b = 2mn, c = m^2 + n^2 for m > n > 0.
+    Then m, n must also satisfy (a - b) = (m^2 - n^2) - 2mn = (m - n)^2 - 2n^2 = ±1.
+
+    Let x = m - n. Then this reduces to the Pell equations given by x^2 - 2n^2 = ±1.
     """
     count = 0
-    for m in range(ceil(sqrt(N / 2))):
-        for n in range(1 + (m % 2), m, 2):
-            if gcd(m, n) == 1:
-                a, b, c = m**2 - n**2, 2*m*n, m**2 + n**2
-                if c % (a - b) == 0:
-                    count += N // (a + b + c)
+    for C in (-1, 1):
+        solutions = e.pell(D=2, N=C)
+        while True:
+            x, y = next(solutions)
+            m, n = x + y, y
+            a, b, c = m*m - n*n, 2*m*n, m*m + n*n
+            num_triples = N // (a + b + c)
+            count += num_triples
+            if num_triples == 0: break
 
     return count
+
+def problem_140(i=1, j=30, a=3, b=1):
+    """
+    Find the sum of the i-th through j-th values of A(x) such that x is rational
+    and A(x) = G(x) - G_0 is a positive integer, where G_i = G_{i-1} + G_{i-2}
+    is the generalized Fibonacci sequence with G_0 = a and G_1 = b, and with
+    G(x) = G_0 + G_1 x + G_2 x^2 + ... as its generating function.
+    """
+    return problem_137(i, j, a, b)
 
 def problem_142(n=3):
     """
@@ -2604,54 +3182,6 @@ def problem_142(n=3):
     x + y and x - y are both perfect squares.
 
     TODO: clean up
-
-    Notes
-    -----
-    Given squares a^2 > b^2 of the same parity, set integers
-    x = (a^2 + b^2) / 2 and y = (a^2 - b^2) / 2.
-    Then x + y = a^2 and x - y = b^2.
-
-    If a^2 = (x + y) and b^2 = (x - y), then a^2 + b^2 = 2x and a^2 - b^2 = 2y.
-
-    x + y is square
-    x + z is square
-    x - z is square
-
-    Case: n = 2
-    -----------
-    We want x + y and x - y to both be squares
-
-    a^2 = x + y
-    b^2 = x - y
-
-    x = (a^2 + b^2) / 2
-    y = (a^2 - b^2) / 2
-
-    So just pick two squares, 1, 9.
-    Then x = 5, y = 4.
-
-    Case: n = 3
-    -----------
-    a^2 = x + y
-    b^2 = x - y
-    c^2 = y + z
-    d^2 = y - z
-    e^2 = x + z
-    f^2 = x - z
-
-    2x = a^2 + b^2 = e^2 + f^2
-    2y = a^2 - b^2 = c^2 + d^2
-    2z = c^2 - d^2 = e^2 - f^2
-
-    2a^2 = c^2 + d^2 + e^2 + f^2
-
-
-    a^2 = e^2 + f^2 - b^2
-    a^2 = c^2 + d^2 + b^2
-
-    e^2 + f^2 - b^2 = c^2 + d^2 + b^2
-
-    
     """
     def make_graph(k):
         graph = defaultdict(set)
@@ -2674,7 +3204,7 @@ def problem_142(n=3):
     best_clique = []
     while len(best_clique) < n:
         graph = make_graph(k)
-        cliques = [clique for clique in util.bron_kerbosch(graph) if len(clique) >= n]
+        cliques = [clique for clique in e.bron_kerbosch(graph) if len(clique) >= n]
         #print(k, cliques)
         if cliques:
             best_clique = min(cliques, key=lambda c: sum(sorted(c)[:n]))
@@ -2683,7 +3213,7 @@ def problem_142(n=3):
         else:
             k *= 2
 
-def problem_145(N=int(1e9)):
+def problem_145(N=10**9):
     """
     Find the number of integers n < N such that the sum [n + reverse(n)]
     consists entirely of odd (decimal) digits.
@@ -2702,7 +3232,7 @@ def problem_145(N=int(1e9)):
 
     return count
 
-def problem_146(N=int(1.5e8)):
+def problem_146(N=150_000_000):
     """
     Find the sum of all integers n < N such that n^2 + k forms a 
     run of consecutive primes for k in {1, 3, 7, 9, 13, 27}.
@@ -2717,7 +3247,7 @@ def problem_146(N=int(1.5e8)):
     """
     offsets = (1, 3, 7, 9, 13, 27)
     residues = {}
-    for p in util.primes(high=100):
+    for p in e.primes(high=100):
         if p in (2, 5): continue
         residues[p] = {
             i for i in range(p)
@@ -2730,46 +3260,17 @@ def problem_146(N=int(1.5e8)):
                 return False
 
         for k in offsets:
-            if not util.is_prime(n*n + k):
+            if not e.is_prime(n*n + k):
                 return False
 
-        if util.is_prime(n*n + 19) or util.is_prime(n*n + 21):
+        if e.is_prime(n*n + 19) or e.is_prime(n*n + 21):
             return False
 
         return True
 
     return sum(n for n in range(10, N, 10) if is_valid(n))
 
-def problem_147(w=47, h=43):
-    """
-    Find the number of rectangles in a w x h grid that can be formed
-    by connecting four distinct points on the grid.
-
-    TODO: UNFINISHED
-
-    Notes
-    -----
-    The number of vertical / horizontal rectangles in a H x W grid is given by
-    T_H * T_W, where T_n is the n-th triangular number (see problem 85).
-
-    The number of diagonal rectangles is 
-
-    1 x 1 = T(1)T(1) + 0 = 1
-    1 x 2 = T(1)T(2) + 1 = 4
-    1 x 3 = T(1)T(3) + 2 = 8
-    1 x 4 = T(1)T(4) + 3 = 13
-    1 x 5 = T(1)T(5) + 4 = 19
-
-    2 x 2 : T(2)T(2) + 9 = 9 + 9 = 18
-    2 x 3 : T(2)T(3) + 19 = 18 + 19 = 37
-    2 x 4 : T(2)T(4) + 29 = 30 + 29 = 59
-    2 x 5 : T(2)T(5) + 39 = 45 + 39 = 84
-
-    3 x 3 : T(3)T(3) + 51 = 36 + 51 = 87
-    """
-    pass
-
-def problem_148(N=int(1e9), p=7):
+def problem_148(N=10**9, p=7):
     """
     Find the number of entries in the first N rows of Pascal's triangle
     that are not divisible by prime p.
@@ -2783,8 +3284,8 @@ def problem_148(N=int(1e9), p=7):
     Thus the number of binomial coefficients C(n, k) not divisible by p
     is given by prod_i (a_i + 1), where a_i are the digits of n in base p.
     """
-    T = lambda n: util.polygonal(3, n)
-    assert util.is_prime(p)
+    T = e.triangle
+    assert e.is_prime(p)
     power = 1 # power of T(p) = (1 + 2 + ... + p)^i
     count = 0
     while N > 0:
@@ -2795,22 +3296,133 @@ def problem_148(N=int(1e9), p=7):
 
     return count
 
-def problem_179(N=int(1e7)):
+def problem_173(N=1_000_000):
     """
-    Find the number of integers 1 < n < N such that d(n) = d(n + 1).
+    TODO: writeup the problem and explain the trick
+
+    Notes
+    -----
+
+    x^2 - y^2 = (x - y)(x + y) = ab = k has valid solutions when a and b
+    have the same parity.
     """
-    num_divisors = util.get_divisor_counts(N)
-    return sum(num_divisors[n] == num_divisors[n + 1] for n in range(2, N))
+    return sum(N // (4*i) - i for i in range(1, isqrt(N // 4) + 1))
+
+def problem_174(T=1_000_000):
+    """
+    TODO: writeup
+
+    Notes
+    -----
+    x^2 - y^2 = (x - y)(x + y) = ab = k has valid solutions when a and b
+    have the same parity.
+    """
+    N = defaultdict(int)
+    for t in range(0, T + 1, 2):
+        n = 0
+        factors = sorted(e.divisors(t))
+        n = sum((factors[i] - factors[-i-1]) % 2 == 0 for i in range(len(factors) // 2))
+        N[n] += 1
+
+    return sum(N[i] for i in range(1, 11))
+
+def problem_179(N=10**7):
+    """
+    Find the number of integers 1 < n < N such that d(n) = d(n + 1),
+    where d(n) is the number of divisors of n.
+    """
+    d = e.divisor_count_range(N + 1)
+    return sum(d[n] == d[n + 1] for n in range(2, N))
+
+def problem_187(N=10**8):
+    """
+    Count the number of semiprimes below N.
+
+    Notes
+    -----
+    We can write any semiprime as n = pq, where p <= √n <= q.
+    Then the sum of semiprimes less than equal to n is given by:
+
+        sum(π(n/p_i) - i + 1) from i = 1 ... √n
+
+    where π is the prime counting function.
+    """
+    pi = e.count_primes
+    pi.cache_primes(e.iroot(N*N, 3))
+    return sum(pi((N - 1) // p) - i for i, p in enumerate(e.primes(high=isqrt(N - 1))))
 
 def problem_188(a=1777, b=1855, n=8):
     """
     Find the last 8 digits of the tetration a ↑↑ b.
+
+    TODO: generalize
     """
     mod = 10**n
+    tetration = a
     for _ in range(b - 1):
-        a = pow(1777, a, mod=mod)
+        tetration = pow(a, tetration, mod=mod)
 
-    return a
+    return tetration
+
+def problem_196(a=5678027, b=7208785):
+    """
+    TODO: write up problem description, optimize
+    """
+    T = cache(e.triangle)
+
+    primes_set = set()
+    primes_set |= set(e.primes(low=T(a - 3), high=T(a + 2)))
+    primes_set |= set(e.primes(low=T(b - 3), high=T(b + 2)))
+
+    def get_neighbors(n):
+        i = e.polygonal_index(3, n - 1)
+        neighbors = (
+            *range(max(T(i - 1) + 1, n - i - 1), min(T(i) + 1, n - i + 2)),
+            *(x for x in (n - 1, n + 1) if T(i) < x <= T(i + 1)),
+            *range(max(T(i + 1) + 1, n + i), min(T(i + 2) + 1, n + i + 3)),
+        )
+        return tuple(filter(primes_set.__contains__, neighbors))
+
+    def is_part_of_prime_triplet(n):
+        neighbors = get_neighbors(n)
+        if len(neighbors) >= 2:
+            return True
+        else:
+            for m in neighbors:
+                if len(get_neighbors(m)) >= 2:
+                    return True
+
+            return False
+
+    def S(n):
+        total = 0
+        for p in e.primes(low=T(n - 1) + 1, high=T(n)):
+            if is_part_of_prime_triplet(p):
+                total += p
+    
+        return total
+
+    return S(a) + S(b)
+
+def problem_203(n=51):
+    """
+    Return the sum of all distinct square-free integers
+    in the first n rows of Pascal's triangle.
+
+    Notes
+    -----
+    Consider the binomial coefficient (n choose k).
+
+    For any p such that p^2 > n, it is clear that the base-p representation of n
+    has at most 2 digits, and thus by Kummer's theorem, the p-adic valuation of
+    (n choose k) must be 0 or 1, since a second carry in the sum n + (n - k)
+    would produce a p^2 term.
+
+    It follows that p^2 cannot divide (n choose k) for any p > √n, which implies
+    we need only test divisibility by squares of primes p <= √n.
+    """
+    moduli = [p*p for p in e.primes(high=isqrt(n))]
+    return sum({a for _, a in e.pascal(n) if all(a % m != 0 for m in moduli)})
 
 def problem_206():
     """
@@ -2818,57 +3430,49 @@ def problem_206():
     where each '_' is a single digit.
 
     TODO: clean up
-
-    1_2_3_4_5_6_7_8_900
-
-    _ _ _ _ _ _ _ _ 3 0
-
-    30 or 70
-    03, 43, 53, 83 or None
-    
-    043
-                    
-    Notes
-    -----
-    We know 
-        * n must be a 10-digit number where sqrt(1e18) <= n < sqrt(2e18)
-        * n must be a multiple of 10
-    We know n
-
-    1010101010 < n < 1389026623
-
-    1,929,374,254,627,488,900
-
     """
     low, high = 1020304050607080900, 1929394959697989900
-    low, high = util.round_up(isqrt(low), 10), isqrt(high)
-    loop = iter(range(low, high + 1, 10))
-    last = False
-    for n in loop:
-        # print(n*n)
+    low, high = ((isqrt(low) + 10 - 1) // 10) * 10, isqrt(high)
+    for n in range(low, high + 1, 10):
         digits = str(n*n)
         if digits[::2] == '1234567890':
             return n
-        # for i in range(2, 4):
-        #     if digits[2*i - 2] != str(i):
-        #         delta = float(f'8.9e{20 - 2*i}')
-        #         delta = int(sqrt(n*n + delta)) - n
-        #         next(itertools.islice(loop, delta // 10, delta // 10 + 1))
-        #         print("Skipping on digit", i)
-        #         break
-            # elif digits[2] != '2':
-            #     delta = int(sqrt(n*n+8.99999999e16)) - n
-            #     next(itertools.islice(loop, delta // 100, delta // 100 + 1))
-            #     break
-            # elif digits[4] != '3':
-            #     delta = int(sqrt(n*n+8.99999999e14)) - n
-            #     next(itertools.islice(loop, delta // 100, delta // 100 + 1))
-            #     break
 
-def problem_218(N=int(1e16)):
+def problem_211(N=64_000_000):
+    """
+    Find the sum of all integers 1 < n < N such that
+    the sum of squares of divisors of n is itself a perfect square.
+    """
+    divisor_square_sums = e.divisor_function_range(N, k=2)
+    return sum(n for n in range(1, N) if e.is_square(divisor_square_sums[n]))
+
+def problem_214(N=40_000_000, k=25):
+    """
+    For any positive integer n, consider the sequence n, φ(n), φ(φ(n)), ..., 1
+    where φ is Euler's totient function. Find the sum of all primes below N
+    that produce a chain of length k.
+
+    Notes
+    -----
+    Let f(n) be the function that is n if n is prime and has a chain length of k,
+    and 0 otherwise.
+    """
+    phi = e.totient_range(N)
+    chain_length = cache(lambda n: 1 if n == 1 else 1 + chain_length(phi[n]))
+    return sum(p for p in e.primes(high=N-1) if chain_length(p) == k)
+
+def problem_216(N=50_000_000):
+    """
+    Count the number of integers 1 < n < N such that 2n^2 - 1 is prime.
+
+    TODO: reimplement with a sieve + Shanks-Tonelli
+    """
+    return sum(e.is_prime(2*n*n - 1) for n in range(2, N + 1))
+
+def problem_218(N=10**16):
     """
     Find the number of primitive Pythagorean triples (a, b, c) such that
-    c is a perfect square and the area ab/2 is not divisible by 6 or 28.
+    c <= N is a perfect square and the area ab/2 is not divisible by 6 or 28.
 
     Notes
     -----
@@ -2887,13 +3491,30 @@ def problem_218(N=int(1e16)):
     By Fermat's little theorem:
 
         A mod 7 = (2mn - 2mn) mod 7 = 0
-        A mod 3 = (2mn - 14mn + 14mn - 2mn) = 0
+        A mod 3 = (2mn - 14mn + 14mn - 2mn) mod 3 = 0
 
     And since one of m, n is even, A mod 4 = 0.
 
     It follows that A mod 6 = 0 and A mod 28 = 0 for every such triple.
     """
     return 0
+
+def problem_231(n=20_000_000, k=15_000_000):
+    """
+    Find the sum of all prime factors (not distinct) of the
+    binomial coefficient (n choose k).
+
+    Notes
+    -----
+    By Kummer's theorem, the p-adic valuation of the binomial coefficient
+    (n choose k) is (S_p(k) + S_p(n - k) - S_p(n)) / (p - 1), where S_p(a)
+    is the sum of the base-p digits of integer a.
+    """
+    S = lambda a, p: sum(e.digits_in_base(a, p))
+    return sum(
+        p * (S(k, p) + S(n - k, p) - S(n, p)) // (p - 1)
+        for p in e.primes(high=n)
+    )
 
 def problem_243(threshold=15499/94744):
     """
@@ -2905,23 +3526,18 @@ def problem_243(threshold=15499/94744):
     The function R(d) reaches a new minimimum exactly when d is a multiple of the
     largest primorial less than or equal to d.
     """
-    def next_prime(n):
-        for a in itertools.count(start=n+1):
-            if util.is_prime(a):
-                return a
-
     # Find the largest primorial n such that R(n) >= threshold
     primorial, p = 1, 2
-    while util.totient(primorial * p) / (primorial * p - 1) >= threshold:
+    while e.totient(primorial * p) / (primorial * p - 1) >= threshold:
         primorial *= p
-        p = next_prime(p)
+        p = e.next_prime(p)
 
     # Increment multiples of the primorial until R(d) < threshold
     for n in itertools.count(start=primorial, step=primorial):
-        if util.totient(n) / (n - 1) < threshold:
+        if e.totient(n) / (n - 1) < threshold:
             return n
 
-def problem_268(N=int(1e16), M=100, k=4):
+def problem_268(N=10**16, M=100, k=4):
     """
     Find how many positive integers less than N are divisible by at least
     k distinct primes less than M.
@@ -2935,7 +3551,7 @@ def problem_268(N=int(1e16), M=100, k=4):
     Every number that is divisible by k + a primes is divisible by 
     ((k + a) choose k) products of k primes.
     """
-    prime_list = list(util.primes(high=M-1))
+    prime_list = list(e.primes(high=M-1))
     count = 0
     for i in range(k, len(prime_list) + 1):
         s = sum(N // prod(factors) for factors in combinations(prime_list, i))
@@ -2943,7 +3559,19 @@ def problem_268(N=int(1e16), M=100, k=4):
 
     return count
 
-def problem_277(N=int(1e15), sequence='UDDDUdddDDUDDddDdDddDDUDDdUUDd'):
+def problem_271(n=13082761331670030):
+    """
+    Find the sum of all integers x such that 1 < x < n and x^3 = 1 (mod n).
+    """
+    a = (-1, 0, 0, 1) # coefficients to f(x) = -1 + x^3
+    pf = e.prime_factorization(n).items()
+    prime_powers = [p**e for p, e in pf]
+    return sum(
+        e.crt(residues, prime_powers)[0]
+        for residues in itertools.product(*(e.hensel(p, k, a) for p, k in pf))
+    ) - 1 # ignore trivial solution x = 1
+
+def problem_277(N=10**15, sequence='UDDDUdddDDUDDddDdDddDDUDDdUUDd'):
     """
     Find the smallest positive integer n > N such that the sequence of operations
     "U" (multiply by 3), "D" (divide by 2), and "d" (decrement by 1) on n
@@ -2973,60 +3601,103 @@ def problem_277(N=int(1e15), sequence='UDDDUdddDDUDDddDdDddDDUDDdUUDd'):
     n = a * pow(b, -1, mod=mod)
     return N + (n - N) % mod
 
-def problem_304(N=100000, k=int(1e14), m=1234567891011):
+def problem_293(N=10**9):
     """
-    Find the sum of F(p) for the first N primes greater than k,
-    where F(i) is the i-th Fibonacci number.
+    TODO: writeup problem description
 
     Notes
     -----
-    By the prime number theorem, the number of primes between k and k + x is
-    approximately x / log(k).
+    Every admissible number can be uniquely represented as a sequence of
+    non-decreasing exponents on consecutive primes.
+
+    We can generate them in increasing order with a min-heap starting with 2,
+    and repeatedly multiplying either by the next prime or by the largest prime
+    factor of the current number.
+    """
+    pseudo_fortunate_numbers = set()
+    primes = list(e.primes(high=e.ilog(N)))
+
+    # Create a min-heap of admissible numbers
+    # Each element of the form (n, (e1, e2, ...)) where n = p1^e1 * p2^e2 * ...
+    queue = [(2, (1,))] 
+    while queue[0][0] < N:
+        # Get admissible and find corresponding pseudo-fortunate number
+        n, exponents = heappop(queue)
+        m = e.next_prime(n + 1) - n
+        pseudo_fortunate_numbers.add(m)
+
+        # Add new admissible numbers to the queue
+        i = len(exponents)
+        heappush(queue, (n * primes[i], (*exponents, 1)))
+        heappush(queue, (n * primes[i - 1], (*exponents[:-1], exponents[-1] + 1)))
+
+    return sum(pseudo_fortunate_numbers)
+
+def problem_304(N=100000, k=10**14, m=1234567891011):
+    """
+    Find the sum of F(p) for the first N primes greater than k,
+    where F(i) is the i-th Fibonacci number.
     """
     # Get the first N primes greater than k
-    prime_list = list(util.primes(low=k, num=N))
+    prime_list = list(e.primes(low=k, num=N))
 
     # Calculate Fibonacci numbers mod m
     p_min, p_max = prime_list[0], prime_list[-1]
     prime_list = set(prime_list)
-    fib = util.fibonacci_numbers(
-        util.fibonacci(p_min, m), util.fibonacci(p_min + 1, m), mod=m)
+    fib = e.fibonacci_numbers(
+        e.fibonacci(p_min, m), e.fibonacci(p_min + 1, m), mod=m)
     fib = zip(range(p_min, p_max + 1), fib)
 
     return sum(F for i, F in fib if i in prime_list) % m
 
-def problem_407(N=int(1e7)):
+def problem_357(N=10**8):
+    """
+    TODO: write problem description
+
+    Notes
+    -----
+    Excluding the trivial n = 1, we notice ...
+
+        * n must be even
+        * n must be square-free
+        * we must have n = p - 1 for some prime p such that p % 4 = 3
+        * we must have n = 2q - 4 for some prime q
+    """
+    total = 1 # account for n = 1
+    for p in e.primes(low=3, high=((N + 4) // 2)):
+        n = 2*p - 4
+
+        # Initial filters
+        if not e.is_prime(n + 1): continue # n + 1 must be prime
+        factors = e.divisors(n)
+        if len(factors) % 2 == 1: continue # must be square-free
+
+        # Check that d + n/d is prime for all divisors d of n
+        for d in factors:
+            if not e.is_prime(d + n // d):
+                break
+        else:
+            total += n
+
+    return total
+
+def problem_407(N=10**7):
     """
     TODO: write problem description and optimize
     """
     def M(n):
-        prime_factorization = Counter(util.prime_factors(n))
-        prime_powers = [p**e for p, e in prime_factorization.items()]
-        # roots = list(itertools.product(*(
-        #     hensel(p, e, (0, -1, 1)) for p, e in prime_factorization.items())))
-        
-
+        prime_powers = [p**e for p, e in e.prime_factorization(n).items()]
         roots = itertools.product((0, 1), repeat=len(prime_powers))
-        
-        solutions = [
-            util.crt(list(zip(tuple(a), prime_powers)))
-            for a in roots
-        ]
-        x = max(solutions)
-        return x
+        return max(e.crt(a, prime_powers)[0] for a in roots)
 
     total = 0
     for n in range(2, N + 1):
-        if n % 1000 == 0: print(n)
+        print(n)
         total += M(n)
-    
-    return total
-    # # return sum(M(n) for n in range(2, N + 1))
-    
-    # for n in range(2, 100):
-    #     print(n, M(n), M(n)**2 % n)
 
-def problem_451(N=int(2e7)):
+    return total
+
+def problem_451(N=20_000_000):
     """
     Let I(n) be the largest integer x < n - 1 such that x^2 = 1 mod n.
     Find the sum of I(3) + I(4) + ... + I(N).
@@ -3055,11 +3726,28 @@ def problem_451(N=int(2e7)):
 
         return False
 
-    prime_factorizations = util.get_prime_factorizations(N)
+    def get_prime_factorizations(N: int) -> list[dict[int, int]]:
+        """
+        Get the prime factorization for each n = 0, 1, 2, ..., N.
 
+        Parameters
+        ----------
+        N : int
+            Upper bound for n
+        """
+        factorizations = [defaultdict(int) for _ in range(N + 1)]
+        for p in e.primes(high=N):
+            for e in range(1, e.ilog(N, p) + 1):
+                prime_power = p**e
+                for factorization in factorizations[prime_power::prime_power]:
+                    factorization[p] += 1
+
+        return factorizations
+
+    prime_factorizations = get_prime_factorizations(N)
 
     roots = [[()] for _ in range(N + 1)]
-    for p in util.primes(high=N):
+    for p in e.primes(high=N):
         for e in range(1, int(log(N, p)) + 1):
             power = p**e
             p_roots = (1, -1)
@@ -3082,7 +3770,7 @@ def problem_451(N=int(2e7)):
 
         prime_powers = [p**e for p, e in prime_factorization.items()]
         solutions = [
-            util.crt(list(zip(tuple(a), prime_powers)))
+            e.crt(list(zip(tuple(a), prime_powers)))[0]
             for a in itertools.product((-1, 1), repeat=len(prime_powers))
         ]
 
@@ -3108,7 +3796,7 @@ def problem_500(n=500500, m=500500507):
     The smallest number with at least 2^n divisors is the product of the
     first n Fermi-Dirac primes.
     """
-    prime_generator = util.primes()
+    prime_generator = e.primes()
     heap = [next(prime_generator)]
     next_prime = next(prime_generator)
     count, product = 0, 1
@@ -3125,7 +3813,7 @@ def problem_500(n=500500, m=500500507):
 
     return product
 
-def problem_501(N=int(1e12)):
+def problem_501(N=10**12):
     """
     Find the number of integers n <= N such that n has exactly 8 divisors.
 
@@ -3133,48 +3821,112 @@ def problem_501(N=int(1e12)):
     -----
     Either n = pqr, n = p^3 * q, or n = p^7, where p, q, r are prime.
     """
-    initial_primes = tuple(util.primes(high=2*util.iroot(N*N, 3)))
-    pi = cache(lambda n: util.count_primes(n, initial_primes=initial_primes))
+    pi = e.sum_primes(N, lambda p: 1, lambda v: v, intermediate_sums=True)
 
     # Count primes p such that p^7 <= N
-    count = pi(util.iroot(N, 7))
+    count = pi[e.iroot(N, 7)]
 
     # Count primes p, q such that p != q and p^3 * q <= N
-    for p in util.primes(high=util.iroot(N//2, 3)):
+    for p in e.primes(high=e.iroot(N//2, 3)):
         n = N // (p*p*p)
-        count += pi(n) - (p <= n)
+        count += pi[n] - (p <= n)
 
     # Count primes p, q, r such that p < q < r and pqr <= N
-    for p in util.primes(high=util.iroot(N, 3)):
-        for q in util.primes(low=p+1, high=isqrt(N//p)-1):
+    for p in e.primes(high=e.iroot(N, 3)):
+        for q in e.primes(low=p+1, high=isqrt(N//p)-1):
             n = N // (p*q)
-            print(p, q, n)
-            count += pi(n) - pi(q)
+            #print(p, q, n)
+            count += pi[n] - pi[q]
 
     return count
 
-def problem_668(N=int(1e10)):
+def problem_601(T=31):
+    """
+    Let streak(n) = k be the smallest integer k such that n + k is not
+    divisible by k + 1, and let P(s, N) be the number of integers 1 < n < N
+    such that streak(n) = s. Find the sum of P(i, 4^i) for 1 <= i <= T.
+
+    Notes
+    -----
+    If streak(n) = k, then we have n = 1 mod 2, n = 1 mod 3, ..., n = 1 mod k,
+    AND n != 1 mod (k + 1).
+
+    We can reduce the first (k - 1) congruences via the Chinese remainder theorem
+    to n = a1 mod m1. Clearly, 1 is a solution, so a1 = 1 and m1 = lcm(2, 3, ..., k).
+
+    If we also include the equality of the final congruence n = 1 mod (k + 1),
+    we can reduce the full set of congruences to n = a2 mod m2, where a2 = 1 and
+    m2 = lcm(2, 3, ..., k + 1).
+
+    Now let C(m, N) = ⌊(N - 2) / m⌋ be the count of integers in the range 1 < n < N
+    such that n = 1 mod m.
+
+    By the inclusion-exclusion principle, we have:
+    
+        P(s, N) = ⌊(N - 2) / lcm(2, 3, ... s)⌋ - ⌊(N - 2) / lcm(2, 3, ..., s + 1)⌋
+    """
+    return sum(
+        (N - 2) // lcm(*range(2, i + 1)) - (N - 2) // lcm(*range(2, i + 2))
+        for i in range(1, T + 1)
+        for N in (4**i,)
+    )
+
+def problem_668(N=10**10):
     """
     Find the number of "smooth" integers n <= N, numbers where
     all of its prime factors are strictly less than its square root.
 
     Notes
     -----
-    For each prime p, we have non-smooth numbers: p, 2p, ..., (p - 1)p, p^2.
-    Then this is equivalent to the sum of min(p, N // p) over primes p <= N.
+    We can instead count the number of "non-smooth" integers n <= N,
+    each identified by its largest prime factor.
+
+    For each prime p <= sqrt(N), we have p non-smooth numbers: p, 2p ... p^2.
+
+    For each prime sqrt(N) < p <= N, we have ⌊N/p⌋ non-smooth numbers: p, 2p ... p⌊N/p⌋,
+    where 1 <= ⌊N/p⌋ < sqrt(N).
+
+    We know that n = ⌊N/p⌋ if and only if N/(n + 1) < p <= N/n.
+    It follows that for each n, we can count the number of primes in this range
+    as π(N/n) - π(N/(n + 1)), each of which contributes n non-smooth numbers.
     """
-    initial_primes = tuple(util.primes(high=2*util.iroot(N*N, 3)))
-    pi = cache(lambda n: util.count_primes(n, initial_primes=initial_primes))
+    pi = e.sum_primes(N, lambda p: 1, lambda v: v, intermediate_sums=True)
 
     # Direct sum for primes less than sqrt(N)
-    count = sum(util.primes(high=isqrt(N)))
+    count = sum(e.primes(high=isqrt(N)))
 
     # Use prime counting for primes greater than sqrt(N)
-    for n in range(1, isqrt(N) + 1):
-        count += n * (pi(N // n) - pi(N // (n + 1)))
+    for n in range(1, isqrt(N)):
+        count += n * (pi[N // n] - pi[N // (n + 1)])
 
     return N - count
 
+def problem_719(N=10**12):
+    def canmake(total, digs):
+        if digs < total:
+            return False
+        elif digs == total:
+            return True
+        else:
+            t = 10
+            while t < digs:
+                cutoff = digs // t
+                rest = digs % t
+                if rest < total:
+                    if canmake(total - rest, cutoff):
+                        return True
+                t *= 10
+        return False
+
+    total = 0
+    for n in (range(0, isqrt(N) + 1, 9)):
+        for root in (n, n + 1):
+            square = root*root
+            if root%1000 == 0:
+                print(root)
+            if canmake(root, square):
+                total += square
+    print(total-1)
 
 def problem_800(base=800800, exp=800800):
     """
@@ -3183,18 +3935,30 @@ def problem_800(base=800800, exp=800800):
 
     Notes
     -----
-    Without loss of generality, assume p < q.
-    Then 2^q < p^q * q^p < N, which implies upper bound p < q < log_2(N).
+    We note that the above inequality implies qlog(p) + plog(q) < log(N).
+    Given a fixed prime p, let f(x) = xlog(p) + plog(x). Since f(x) is
+    a monotonically increasing function for x > 1, we can use binary search
+    to find the largest integer x such that f(x) < log(N).
+
+    Then the number of primes q > p such that f(x) < log(N) is given by
+    π(x) - π(p), where π is the prime counting function.
+
+    Without loss of generality, assume p < q. Then 2^q < p^q * q^p < N,
+    which implies upper bound p < q < log_2(N).
     """
-    import bisect
+    # Compute bounds
+    log_N, p_max = exp * log(base), int(exp * log(base, 2))
+
+    # Iterate over primes p
     count = 0
-    log_N = exp * log(base)
-    prime_list = tuple(util.primes(high=int(log_N/log(2))))
-    for i, p in enumerate(prime_list):
-        # Find the number of primes q > p such that qlog(p) + plog(q) >= log(N)
-        log_p = log(p)
-        key = lambda j: prime_list[j] * log_p + p * log(prime_list[j])
-        num_primes = bisect.bisect_right(range(i + 1, len(prime_list)), log_N, key=key)
+    pi = e.count_primes
+    for i, p in enumerate(pi.cache_primes(p_max)):
+        # Find the largest integer x such that xlog(p) + plog(x) < log(N)
+        f = lambda x: x*log(p) + p*log(x)
+        x = e.binary_search(f, threshold=log_N, low=p+1, high=p_max) - 1
+
+        # Find the number of primes q > p such that qlog(p) + plog(q) < log(N)
+        num_primes = pi(x) - (i + 1)
         count += num_primes
         if num_primes == 0:
             break
@@ -3214,23 +3978,24 @@ if __name__ == '__main__':
     import cProfile
 
     parser = argparse.ArgumentParser()
-    parser.add_argument('--problem', type=int)
+    parser.add_argument('--problem', type=str)
     parser.add_argument('--profile', action='store_true')
+    parser.add_argument('--num', type=int, default=1)
     parser.add_argument('config', nargs='*', default=[], type=int)
     args = parser.parse_args()
 
-    problem = eval(f'problem_{args.problem}')
-    compute_answer = lambda: print(problem(*args.config))
-    # compute_answer()
-    # def compute_answer():
-    #     for i in range(10):
-    #         problem(*args.config)
+    problem = globals()[f'problem_{args.problem}']
+
+    def compute_answer():
+        for _ in range(args.num):
+            ans = problem(*args.config)
+        print(ans)
+
     if args.profile:
         cProfile.run('compute_answer()', sort='cumtime')
     else:
         compute_answer()
 
-# # # # TODO: get #14 under 0.1s, get #60 under 1s
 
 
 # import timeit
@@ -3241,3 +4006,17 @@ if __name__ == '__main__':
 #         print(i, f'{t:.6f}', 'seconds')
 #     except:
 #         pass
+
+
+
+"""
+
+#################
+### TODO List ###
+#################
+
+* Refactor divisibility sieves to a segmented approach to save memory
+* Write a bitmap "set with limited domain" interface
+* Solve problem 185 (CSP)
+* Write general quadratic diophantine solver
+"""
