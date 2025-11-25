@@ -1,3 +1,7 @@
+# Copyright (c) 2025 Ini Oguntola
+# Permission is granted to use, copy, modify, and redistribute this work
+# provided attribution to the original author is retained.
+
 from __future__ import annotations
 
 import bisect

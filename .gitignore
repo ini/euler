@@ -75,3 +75,5 @@ coverage.xml
 *.sqlite3
 data/
 
+# Personal
+working.py
