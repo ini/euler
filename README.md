@@ -26,17 +26,23 @@
 
 Functions are grouped by topic inside `euler.py` with docstrings.
 
-### Quick use
+### Quick use (REPL)
 ```python
-import euler as e
-
-e.is_prime(1_000_000_007)
-list(e.primes(high=1000))
-e.count_primes(10**10)
-e.sum_primes(10**9)
-e.prime_factorization(987654321)
-e.multiplicative_order(10, 97)
-next(e.pell(13))  # first solution to x^2 - 13y^2 = 1
+>>> import euler as e
+>>> e.is_prime(1_000_000_007)
+True
+>>> list(e.primes(high=30))
+[2, 3, 5, 7, 11, 13, 17, 19, 23, 29]
+>>> e.count_primes(10**10)
+455052511
+>>> e.sum_primes(10**10)
+2220822432581729238
+>>> e.prime_factorization(987654321)
+defaultdict(<class 'int'>, {3: 2, 17: 2, 379721: 1})
+>>> e.multiplicative_order(10, 97)
+96
+>>> next(e.pell(13))
+(649, 180)
 ```
 
 ## Project Euler solutions (`solve.py`)
