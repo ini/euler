@@ -1,6 +1,6 @@
 # Euler
 
-`euler.py` is a single-file, zero-dependency toolkit for primes, factorization, modular arithmetic, combinatorics, Diophantine equations, graphs, and more. It’s tuned for speed and readability, and you can drop it anywhere you have Python 3.10+. `solve.py` is a gallery of Project Euler solutions that show the toolkit in action and provide a CLI.
+`euler.py` is a single-file, zero-dependency toolkit for primes, factorization, modular arithmetic, combinatorics, Diophantine equations, graphs, and more. It’s tuned for speed and readability, and you can drop it anywhere you have Python 3.10+. `solve.py` is a gallery of my Project Euler solutions that show the toolkit in action and provide a CLI.
 
 ## Why you’ll want to explore this
 - **One file, no strings attached** — pure Python, no installs. Copy `euler.py` into a repo, notebook, or contest folder and go.
@@ -51,12 +51,9 @@ next(e.pell(13))  # first solution to x^2 - 13y^2 = 1
 - Some problems read inputs from `data/` (e.g., 8, 22, 54). Keep those files in place or adjust paths.
 
 ## Repo layout
-- `euler.py` — the drop-in toolkit (star of the show).
+- `euler.py` — the drop-in toolkit.
 - `solve.py` — Project Euler implementations + CLI runner.
-- `working.py` — scratch space (ignored by git).
 - `data/` — input files for certain problems.
-- `.gitignore` — keeps local data/scratch out of version control.
-- `LICENSE` — MIT with attribution.
 
 ## Requirements
 - Python 3.10+.
