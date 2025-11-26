@@ -2534,20 +2534,96 @@ def problem_103(n=7):
     and suffix sums of the sorted set, and ensuring that each prefix sum
     of k elements is greater than the corresponding suffix sum of (k - 1) elements.
     """
-    def constraint(A):
-        # Check constraint 2
+    def condition_1(A):
+        m = len(A)
+        # if m < 4:
+        #     # For m <= 3 and strictly increasing A, there cannot be
+        #     # two disjoint equal-size subsets with equal sum.
+        #     return True
+
+        idx = range(m)
+        max_r = m // 2
+        for r in range(1, max_r + 1):
+            sums = {}
+            for comb in itertools.combinations(idx, r):
+                s = sum(A[i] for i in comb)
+                if s in sums:
+                    Scomb = set(comb)
+                    for prev in sums[s]:
+                        if prev.isdisjoint(Scomb):
+                            return False
+                    sums[s].append(Scomb)
+                else:
+                    sums[s] = [set(comb)]
+        return True
+ 
+    def condition_2(A):
         prefix_sums = list(itertools.accumulate(A))
         suffix_sums = list(itertools.accumulate(reversed(A)))
         for x, y in zip(prefix_sums[1:], suffix_sums):
             if x <= y:
                 return False
 
-        # Check constraint 1
-        for B, C in e.disjoint_subset_pairs(A, equal_size_only=True):
-            if sum(B) == sum(C):
-                return False
-
         return True
+
+    def partial_ok(A):
+        """Combined cheap check for partial sets."""
+        return condition_2(A) and condition_1(A)
+
+    # --- Build a special seed of size n using the proven "middle element" rule ---
+
+    if n == 1:
+        return "1"
+
+    A = [1]
+    for _ in range(2, n + 1):
+        b = A[len(A) // 2]          # a_{⌊m/2⌋+1}, guaranteed sufficient
+        A = [b] + [b + x for x in A]
+
+    # A is now a valid special sum set of size n (by the proof we discussed)
+    best_set = tuple(A)
+    best_sum = sum(best_set)
+
+    # --- One global DFS with branch-and-bound and cheap partial pruning ---
+
+    def dfs(i, prev_val, partial, partial_sum):
+        nonlocal best_set, best_sum
+
+        if i == n:
+            # Only here do we pay for full constraint() including e.disjoint_subset_pairs
+            if partial_sum < best_sum and condition_2(partial) and condition_1(partial):
+                best_set = tuple(partial)
+                best_sum = partial_sum
+            return
+
+        rem = n - i
+
+        # Global lower bound: fill remaining rem elements with prev_val+1, prev_val+2, ...
+        tail_min = rem * (prev_val + 1) + rem * (rem - 1) // 2
+        if partial_sum + tail_min >= best_sum:
+            return
+
+        rem_after = rem - 1
+        # Solve for x range from sum bound:
+        # total = partial_sum + x + rem_after*(x+1) + rem_after*(rem_after-1)//2 < best_sum
+        # => (rem_after+1)*x < best_sum - partial_sum - rem_after*(rem_after+1)//2
+        numerator = best_sum - 1 - partial_sum - rem_after * (rem_after + 1) // 2
+        if numerator <= 0:
+            return
+
+        x_lo = prev_val + 1
+        x_hi = numerator // (rem_after + 1)
+        if x_lo > x_hi:
+            return
+
+        for x in range(x_lo, x_hi + 1):
+            partial.append(x)
+            if condition_2(partial) and condition_1(partial):
+                dfs(i + 1, x, partial, partial_sum + x)
+            partial.pop()
+
+    dfs(0, 0, [], 0)
+    return ''.join(map(str, best_set))
 
 
     
