@@ -1,6 +1,6 @@
 # Copyright (c) 2025 Ini Oguntola
-# Permission is granted to use, copy, modify, and redistribute this work
-# provided attribution to the original author is retained.
+# Permission is granted to use, copy, modify, and redistribute this work,
+# provided acknowledgement of the original author is retained.
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ from collections import Counter, defaultdict, deque
 from collections.abc import Sequence
 from functools import cache, reduce
 from heapq import heappop, heappush
-from math import comb, factorial, gcd, isqrt, log, prod, sqrt
+from math import comb, factorial, gcd, inf, isqrt, log, prod, sqrt
 from numbers import Number
 from typing import Any, Callable, Hashable, Iterable, Iterator
 
@@ -27,6 +27,7 @@ from typing import Any, Callable, Hashable, Iterable, Iterator
 def is_prime(n: int) -> bool:
     """
     Test if a given integer n is prime.
+
     Uses a combination of trial division, Miller-Rabin primality test with
     deterministic bases for n <= 2^64, and Baillie-PSW primality test for n > 2^64
     (which is probabilistic but has no known counterexamples).
@@ -107,7 +108,7 @@ def next_prime(n: int) -> int:
         if is_prime(a):
             return a
 
-def primes(low: int = 2, high: int = None, num: int = None) -> Iterator[int]:
+def primes(low: int = 2, high: int = inf, num: int = inf) -> Iterator[int]:
     """
     Generate prime numbers in increasing order within the range [low, high].
     Uses the sieve of Eratosthenes, with a segmented approach for large ranges.
@@ -123,8 +124,6 @@ def primes(low: int = 2, high: int = None, num: int = None) -> Iterator[int]:
     """
     DEFAULT_SIEVE_SIZE, MAX_SIEVE_SIZE = 1000, 10000000
     low = max(low, 2)
-    high = float('inf') if high is None else high
-    num = float('inf') if num is None else num
 
     # Generate initial prime
     if low <= 2 <= high and num > 0:
@@ -137,7 +136,7 @@ def primes(low: int = 2, high: int = None, num: int = None) -> Iterator[int]:
     # When `high` is given, sieve on range [low, high]
     # When `num` is given, sieve on range [low, n (log n + log log n)],
     # where n is an upper bound on `π(low) + num`
-    if high == num == float('inf'):
+    if high == num == inf:
         sieve_size = DEFAULT_SIEVE_SIZE
     else:
         n = num + 1.25506 * low / log(low)
@@ -155,7 +154,7 @@ def primes(low: int = 2, high: int = None, num: int = None) -> Iterator[int]:
 
         # Get new primes with segmented sieve
         new_primes = _segmented_eratosthenes(low, sieve_size, small_primes)
-        if num < float('inf'):
+        if num < inf:
             new_primes = tuple(itertools.islice(new_primes, num))
             num -= len(new_primes)
 
@@ -170,7 +169,7 @@ def count_primes(x: int) -> int:
     """
     Prime counting function π(x). Returns the number of primes <= x.
     Uses binary search on cached primes when possible, otherwise uses
-    the LMO extension of the Meissel-Lehmer algorithm.
+    the Lagarias-Miller-Odlyzko (LMO) extension of the Meissel-Lehmer algorithm.
 
     Automatically stores a cache of any intermediate primes used to
     speed up repeated calls. To manually cache of primes up to N,
@@ -186,7 +185,7 @@ def count_primes(x: int) -> int:
     if x <= cached_primes[-1]:
         return bisect.bisect(cached_primes, x)
     else:
-        return _meissel_lehmer(x)
+        return _lmo(x)
 
 def sum_primes(
     x: int,
@@ -218,63 +217,17 @@ def sum_primes(
     if x < 2:
         return 0 if not intermediate_sums else {}
 
-    root = isqrt(x)
-    values = [v for v in range(1, root + 1)]
-    if root * root != x:
-        values.append(x // root)
-    for n in range(root - 1, 0, -1):
-        values.append(x // n)
-
-    # Choose y ~ x^(2/3) / (log x)^(2/3)
-    c = 0.5
-    y = int(round(c * (x**(2/3)) / (log(x)**(2/3))))
-    y = max(root + 1, min(x, y))    
-
-    # Precompute initial sums S(v) = F(v) - F(1) = F(v) - 1
     if f is None and f_prefix_sum is None:
         f, f_prefix_sum = (lambda n: n), (lambda v: v * (v + 1) // 2)
     elif f is None:
         f = lambda n: f_prefix_sum(n) - f_prefix_sum(n - 1)
     elif f_prefix_sum is None:
         f_prefix_sum = lambda v: sum(f(n) for n in range(1, v + 1))
-    S = [f_prefix_sum(v) - 1 for v in values]
 
-    # Initialize sieve and Fenwick tree
-    f = cache(f)
-    tree = _fenwick_tree_init([0, 0] + [f(n) for n in range(2, y + 1)])
-    is_composite = bytearray(y + 1)
-    is_composite[0] = is_composite[1] = True
-
-    # Map only the "large" keys v > y to their indices for S0
-    value_to_index = {v: i for i, v in enumerate(values) if v > y}
-    S0 = lambda v: S[value_to_index[v]] if v > y else _fenwick_tree_query(tree, v)
-
-    for p in range(2, root + 1):
-        if is_composite[p]:
-            continue
-
-        # Update sums S(v, p) = S(v, p-1) - f(p) * (S(v // p, p-1) - S(p-1, p-1))
-        limit = min(x // y, x // (p*p))
-        previous_sum = S0(p - 1)
-        if not intermediate_sums:
-            S[-1] -= f(p) * (S0(x // p) - previous_sum)
-            for i in range(p, limit + 1):
-                if not is_composite[i]:
-                    S[-i] -= f(p) * (S0(x // (i * p)) - previous_sum)
-        else:
-            for i in range(1, limit + 1):
-                S[-i] -= f(p) * (S0(x // (i * p)) - previous_sum)
-
-        # Update the sieve and Fenwick tree
-        for j in range(p*p, y + 1, p):
-            if not is_composite[j]:
-                is_composite[j] = True
-                _fenwick_tree_update(tree, j, -f(j))
-
-    return {v: S0(v) for v in values} if intermediate_sums else S[-1]
+    return _lucy(x, f, f_prefix_sum, intermediate_sums=intermediate_sums)
 
 def _miller_rabin(n: int, s: int, d: int, a: int = 2) -> bool:
-    """ 
+    """
     Single round of Miller-Rabin primality testing,
     where n = 2^s * d + 1, with d odd.
     """
@@ -373,7 +326,7 @@ def _segmented_eratosthenes(
     return itertools.compress(range(start, start + 2 * sieve_size, 2), sieve)
 
 @cache
-def _meissel_lehmer(x: int, k: int = 15, c: float = 0.003) -> int:
+def _lmo(x: int, k: int = 15, c: float = 0.003) -> int:
     """
     Lagarias-Miller-Odlyzko (LMO) extension of the Meissel-Lehmer algorithm.
     Returns the value of the prime counting function π(x), i.e. the number of
@@ -420,7 +373,7 @@ def _meissel_lehmer(x: int, k: int = 15, c: float = 0.003) -> int:
         for low in range(y + 1, limit + 1, y):
             # Get prime counts for the interval [low, high)
             high = min(low + y, limit + 1)
-            sieve = _meissel_lehmer_sieve_segment(
+            sieve = _lmo_full_sieve(
                 low, high - low, small_primes, max_prime=isqrt(high))
             prime_counts = itertools.accumulate(sieve, initial=prime_counts[-1])
             prime_counts = list(prime_counts)[1:]
@@ -429,13 +382,12 @@ def _meissel_lehmer(x: int, k: int = 15, c: float = 0.003) -> int:
 
             # Find all primes p ∈ (y, sqrt(x)] such that low <= x // p < high
             # by sieving the inverse interval (x // high, x // low]
-            low_ = max(x // high, y) + 1
+            low_ = (max(x // high, y) + 1)
             high_ = min(x // low, sqrt_x)
-            sieve_size_ = high_ - low_ + 1
-            sieve_ = _meissel_lehmer_sieve_segment(
-                low_, sieve_size_, small_primes, max_prime=isqrt(high_))
+            sieve_ = _lmo_full_sieve(
+                low_, high_ - low_ + 1, small_primes, max_prime=isqrt(high_))
 
-            # Accumulate pi(x // p) for all x // p in our main interval [low, high)
+            # Accumulate pi(x/p) for all x/p in our main interval [low, high)
             primes_ = list(itertools.compress(range(low_, high_ + 1), sieve_))
             P2 += sum(prime_counts[x // p - low] for p in primes_)
 
@@ -474,12 +426,11 @@ def _meissel_lehmer(x: int, k: int = 15, c: float = 0.003) -> int:
 
     for low in range(1, limit, sieve_size):
         # Sieve the segment [low, high) with the first k primes
+        # Only odd numbers are stored in the sieve (sieve[i] corresponds to low + 2i)
         high = min(low + sieve_size, limit)
-        sieve = _meissel_lehmer_sieve_segment(low, sieve_size, small_primes[:k])
-
+        odd_sieve = _lmo_odd_sieve(low, sieve_size, small_primes[:k])
+    
         # Initialize a Binary Indexed Tree
-        # Only odd numbers are stored in the tree (tree[i] corresponds to sieve[2i])
-        odd_sieve = sieve[::2]
         tree = _fenwick_tree_init(odd_sieve)
 
         # Sieve the segment [low, high) with the remaining primes
@@ -512,7 +463,85 @@ def _meissel_lehmer(x: int, k: int = 15, c: float = 0.003) -> int:
 
     return a - 1 - P2 + S1 + S2
 
-def _meissel_lehmer_sieve_segment(
+def _lucy(
+    x: int,
+    f: Callable[[int], Number],
+    f_prefix_sum: Callable[[int], Number],
+    intermediate_sums: bool = False,
+    c: float = 0.5,
+) -> Number | dict[int, Number]:
+    """
+    Compute the sum of f(p) over all primes p <= x,
+    where f is a completely multiplicative function.
+
+    Uses a modified version of Lucy's Algorithm for prime summation.
+
+    Parameters
+    ----------
+    x : int
+        Upper bound for prime numbers
+    f : Callable(int) -> int
+        Completely multiplicative function f(n),
+        where f(ab) = f(a) * f(b) for all a, b > 0
+    f_prefix_sum : Callable(int) -> int
+        Function to compute the cumulative sum Σ_{1 <= n <= v} f(n).
+        Ideally this should have a closed form solution for efficiency.
+    intermediate_sums : bool
+        If True, return a dictionary of intermediate sums Σ_{p <= v} f(p)
+        where v ranges over the values used in the computation
+    """
+    if x < 2:
+        return 0 if not intermediate_sums else {}
+
+    root = isqrt(x)
+    values = [v for v in range(1, root + 1)]
+    if root * root != x:
+        values.append(x // root)
+    for n in range(root - 1, 0, -1):
+        values.append(x // n)
+
+    # Choose y ~ x^(2/3) / (log x)^(2/3)
+    y = int(round(c * (x**(2/3)) / (log(x)**(2/3))))
+    y = max(root + 1, min(x, y))    
+
+    # Initialize sieve and Fenwick tree
+    f = cache(f)
+    tree = _fenwick_tree_init([0, 0] + [f(n) for n in range(2, y + 1)])
+    is_composite = bytearray(y + 1)
+    is_composite[0] = is_composite[1] = True
+
+    # Precompute initial sums S(v) = F(v) - F(1) = F(v) - 1
+    S = [f_prefix_sum(v) - 1 for v in values]
+
+    # Map only the "large" keys v > y to their indices for S0
+    value_to_index = {v: i for i, v in enumerate(values) if v > y}
+    S0 = lambda v: S[value_to_index[v]] if v > y else _fenwick_tree_query(tree, v)
+
+    for p in range(2, root + 1):
+        if is_composite[p]:
+            continue
+
+        # Update sums S(v, p) = S(v, p-1) - f(p) * (S(v // p, p-1) - S(p-1, p-1))
+        limit = min(x // y, x // (p*p))
+        previous_sum = S0(p - 1)
+        if not intermediate_sums:
+            S[-1] -= f(p) * (S0(x // p) - previous_sum)
+            for i in range(p, limit + 1):
+                if not is_composite[i]:
+                    S[-i] -= f(p) * (S0(x // (i * p)) - previous_sum)
+        else:
+            for i in range(1, limit + 1):
+                S[-i] -= f(p) * (S0(x // (i * p)) - previous_sum)
+
+        # Update the sieve and Fenwick tree
+        for j in range(p*p, y + 1, p):
+            if not is_composite[j]:
+                is_composite[j] = True
+                _fenwick_tree_update(tree, j, -f(j))
+
+    return {v: S0(v) for v in values} if intermediate_sums else S[-1]
+
+def _lmo_full_sieve(
     start: int,
     sieve_size: int,
     small_primes: Sequence[int],
@@ -536,6 +565,42 @@ def _meissel_lehmer_sieve_segment(
         if offset < sieve_size:
             num_prime_multiples = ((sieve_size - offset + p - 1) // p)
             sieve[offset::p] = bytearray(b'\x00') * num_prime_multiples # mark false
+
+    return sieve
+
+def _lmo_odd_sieve(
+    start: int,
+    sieve_size: int,
+    small_primes: Sequence[int],
+    max_prime: int = None,
+) -> bytearray:
+    """
+    Sieve the interval [start, start + sieve_size) using the given list of primes.
+    Will also sieve out primes themselves if they fall within the interval.
+    Returns a sieve of odd numbers only.
+    """
+    # Initialize sieve segment
+    # Only odd numbers are stored in the sieve (sieve[i] corresponds to start + 2i)
+    start, end = start | 1, start + sieve_size
+    sieve_size = (end - start + 1) // 2
+    sieve = bytearray(b'\x01') * sieve_size
+    if not small_primes:
+        return sieve
+    else:
+        max_prime = max_prime or small_primes[-1]
+
+    for p in small_primes[1:]:
+        if p > max_prime:
+            break
+
+        # Find next odd multiple of p >= start
+        next_odd_multiple = start + (p - start) % (2*p)
+
+        # Mark multiples of p in the odd sieve
+        index = (next_odd_multiple - start) // 2
+        count = (sieve_size - index + p - 1) // p
+        if count > 0:
+            sieve[index::p] = bytearray(b'\x00') * count
 
     return sieve
 
@@ -605,11 +670,10 @@ count_primes._cached_primes = (2, 3)
 
 ### Factorization
 
-@cache
-def prime_factors(n: int) -> tuple[int, ...]:
+def prime_factors(n: int) -> Iterator[int]:
     """
     Get all prime factors of n (with multiplicity).
-    Uses Pollard's rho factorization method.
+    Uses Brent's variant of Pollard's rho factorization method.
 
     Parameters
     ----------
@@ -617,28 +681,27 @@ def prime_factors(n: int) -> tuple[int, ...]:
         Integer to factor
     """
     if n < 2:
-        return ()
-
-    factors = []
+        return
 
     # Trial division over first few primes
     for p in (2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47):
-        if p * p > n: break
         while n % p == 0:
-            factors.append(p)
+            yield p
             n //= p
 
-    # Use Brent's algorithm to find a nontrivial factor
     if n == 1:
-        pass
-    elif is_prime(n):
-        factors.append(n)
-    else:
-        d = _brent(n)
-        factors += prime_factors(d)
-        factors += prime_factors(n // d)
+        return
 
-    return tuple(factors)
+    # Use Brent's algorithm to find factors
+    stack = deque([n])
+    while stack:
+        n = stack.pop()
+        if is_prime(n):
+            yield n
+        else:
+            d = _brent(n)
+            stack.append(d)
+            stack.append(n // d)
 
 def prime_factorization(n: int) -> dict[int, int]:
     """
@@ -650,45 +713,14 @@ def prime_factorization(n: int) -> dict[int, int]:
     n : int
         Integer to factor
     """
-    pf = defaultdict(int)
-
-    if n < 2:
-        return pf
-
-    # Trial division over first few primes
-    for p in (2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47):
-        if p * p > n: break
-        while n % p == 0:
-            pf[p] += 1
-            n //= p
-
-    # Use Brent's algorithm for remaining factors
-    if n == 1:
-        pass
-    elif is_prime(n):
-        pf[n] += 1
-    else:
-        stack = deque([n])
-        while stack:
-            n = stack.pop()
-            if is_prime(n):
-                pf[n] += 1
-            else:
-                d = _brent(n)
-                stack.append(d)
-                stack.append(n // d)
-
-    return pf
+    return Counter(prime_factors(n))
 
 def divisors(n: int) -> tuple[int, ...]:
     """
-    Get all divisors of n (in no particular order, and including both 1 and n).
+    Get all divisors of n in increasing order (including both 1 and n).
     """
-    # Build divisors from the prime factorization,
-    # starting from [1], and for each p^e, multiplying existing factors
-    # by the prime powers p, p^2, ..., p^e
     factors = [1]
-    for p, e in prime_factorization(n).items():
+    for p, e in Counter(prime_factors(n)).items():
         current_factors, prime_power = factors[:], 1
         for _ in range(e):
             prime_power *= p
@@ -697,7 +729,7 @@ def divisors(n: int) -> tuple[int, ...]:
     return tuple(factors)
 
 @cache
-def _brent(n: int, seed: int = None) -> int:
+def _brent(n: int, seed: int = 0) -> int:
     """
     Brent's variant of Pollard's rho factorization method.
     Returns an integer factor of n.
@@ -733,13 +765,22 @@ def _brent(n: int, seed: int = None) -> int:
         if G < n:
             return G
 
+def _siqs(n: int) -> int:
+    """
+    Self-Initializing Quadratic Sieve (SIQS).
+    Returns an integer factor of n.
+    """
+    # Placeholder for SIQS implementation
+    raise NotImplementedError("SIQS factorization is not yet implemented.")
+
 
 
 ### Multiplicative Functions
 
+@cache
 def totient(n: int) -> int:
     """
-    Compute Euler's totient function φ(n) for an integer n.
+    Compute Euler's totient function φ(n) for a positive integer n.
     """
     return prod(p**(k - 1) * (p - 1) for p, k in prime_factorization(n).items())
 
@@ -774,7 +815,7 @@ def divisor_count_range(N: int) -> list[int]:
     # exp[n] = exponent of small_prime_factor[n] in n
     divisor_counts = [1] * N
     exp = [0] * N
-    small_prime_factor = _small_prime_factor_range(N)
+    small_prime_factor = list(_small_prime_factor_range(N))
     for n in range(2, N):
         p = small_prime_factor[n]
         m = n // p
@@ -831,18 +872,17 @@ def totient_range(N: int) -> list[int]:
     Find the value of Euler's totient function φ(n) for each n = 0, 1, 2, ..., N - 1.
     Includes dummy value φ(0) = 1.
     """
-    # Use the multiplicative property of the totient function
     phi = [1] * N
     small_prime_factor = _small_prime_factor_range(N)
     for n in range(2, N):
         if (p := small_prime_factor[n]) == n:
-            phi[n] = n - 1
+            phi[n] = n - 1 # n is prime
         else:
             m = n // p
             if m % p == 0:
-                phi[n] = phi[m] * p
+                phi[n] = phi[m] * p # φ(p^k) = p * φ(p^(k-1))
             else:
-                phi[n] = phi[m] * (p - 1)
+                phi[n] = phi[m] * (p - 1) # φ(p * m) = (p - 1) * φ(m) if p ∤ m
 
     return phi
 
@@ -851,7 +891,6 @@ def mobius_range(N: int) -> list[int]:
     Find the value of the Mobius function μ(n) for each n = 0, 1, 2, ..., N - 1.
     Includes dummy value μ(0) = 1.
     """
-    # Use the multiplicative property of the Mobius function
     mu = [1] * N
     small_prime_factor = _small_prime_factor_range(N)
     for n in range(2, N):
@@ -863,6 +902,24 @@ def mobius_range(N: int) -> list[int]:
             mu[n] = -mu[m]
 
     return mu
+
+def radical_range(N: int) -> list[int]:
+    """
+    Find the value of the radical function rad(n) for each n = 0, 1, 2, ..., N - 1,
+    where rad(n) is the product of the distinct prime factors of n.
+    Includes dummy value rad(0) = 1.
+    """
+    rad = [1] * N
+    small_prime_factor = _small_prime_factor_range(N)
+    for n in range(2, N):
+        p = small_prime_factor[n]
+        m = n // p
+        if small_prime_factor[m] == p:
+            rad[n] = rad[m]
+        else:
+            rad[n] = rad[m] * p
+
+    return rad
 
 def _small_prime_factor_range(N: int) -> list[int]:
     """
@@ -879,6 +936,8 @@ def _coprime_range(N: int) -> bytearray:
     """
     Return whether each integer from 0, 1, 2, ... N - 1 is coprime to N.
     """
+    if N < 1:
+        return bytearray()
     is_coprime = bytearray(b'\x01') * N
     is_coprime[0] = (N == 1)
     for p in set(prime_factors(N)):
@@ -1335,10 +1394,10 @@ def pythagorean_triples(
     max_m = None
     if max_c is not None:
         max_c = int(max_c)
-        max_m = min(max_m or float('inf'), isqrt(max_c))
+        max_m = min(max_m or inf, isqrt(max_c))
     if max_sum is not None:
         max_sum = int(max_sum)
-        max_m = min(max_m or float('inf'), isqrt(max_sum // 2))
+        max_m = min(max_m or inf, isqrt(max_sum // 2))
 
     # Bounded case
     if max_m is not None:
@@ -1541,7 +1600,7 @@ def squares(low: int = 0, high: int = None) -> Iterator[int]:
     """
     Generate square numbers in the range [low, high].
     """
-    low, high = max(low, 0), high if high is not None else float('inf')
+    low, high = max(low, 0), high if high is not None else inf
     i = isqrt(low)
     while (n := i*i) < low:
         i += 1
@@ -1554,7 +1613,7 @@ def cubes(low: int = 0, high: int = None) -> Iterator[int]:
     """
     Generate cube numbers in the range [low, high].
     """
-    high = high if high is not None else float('inf')
+    high = high if high is not None else inf
     i = iroot(low, 3)
     while (n := i*i*i) < low:
         i += 1
@@ -1568,6 +1627,35 @@ def cubes(low: int = 0, high: int = None) -> Iterator[int]:
 ### Graphs
 
 Node = Hashable
+
+def search(
+    start: Iterable[Node],
+    find_next: Callable[[Node], Iterable[Node]],
+    found: Callable[[Node], bool] = None,
+    stop: Callable[[Node], bool] = None,
+) -> Iterator[Node]:
+    """
+    Depth first search.
+
+    Parameters
+    ----------
+    start : Iterable[Node]
+        Initial nodes to start searching from
+    find_next : Callable(Node) -> Iterable[Node]
+        Generate all candidates for the next node in the search
+    found : Callable(Node) -> bool
+        Whether or not a given node is a solution
+    stop : Callable(Node) -> bool
+        Whether or not to stop searching from a given node
+    """
+    stack = deque(start)
+    get_node, visit_nodes = stack.pop, stack.extend
+    while stack:
+        node = get_node()
+        if found is None or found(node):
+            yield node
+        if stop is None or not stop(node):
+            visit_nodes(find_next(node))
 
 def dijkstra(
     source: Node,
@@ -1594,7 +1682,7 @@ def dijkstra(
     prev : dict[Node, Node]
         Predecessor of each node in the shortest path
     """
-    dist = defaultdict(lambda: float('inf'), {source: 0})
+    dist = defaultdict(lambda: inf, {source: 0})
     prev = defaultdict(lambda: None)
     queue = [(0, source)]
     while queue:
@@ -1749,26 +1837,24 @@ def topological_sort(graph: dict[Node, Iterable[Node]]) -> list[Node]:
     return order
 
 def find_cycles(
-    find_next: Callable[[list[Node]], Iterable[Node]] = lambda path: [],
+    find_next: Callable[[tuple[Node, ...]], Iterable[Node]] = lambda path: [],
     current_path: list[Node] = None,
 ) -> Iterator[list[Node]]:
     """
-    Use DFS to find cycles in a graph.
+    Find cycles in a directed graph.
 
     Parameters
     ----------
-    find_next : Callable(list[Node]) -> Iterable[Node]
+    find_next : Callable(tuple[Node, ...]) -> Iterable[Node]
         Function that returns all candidates for the next node in the path
     current_path : list[Node]
         Current path in the graph
     """
-    current_path = current_path or []
-    for v in find_next(current_path):
-        if v in current_path:
-            yield current_path[current_path.index(v):]
-        else:
-            for cycle in find_cycles(find_next, current_path + [v]):
-                yield cycle
+    start_path = tuple(current_path) or ()
+    find_next_path = lambda path: (path + (v,) for v in find_next(path))
+    found = lambda path: path and path[-1] in path[:-1]
+    for cycle in search([start_path], find_next_path, found=found, stop=found):
+        yield cycle[cycle.index(cycle[-1]):-1]
 
 def find_functional_cycles(
     f: Callable[[int], int],
@@ -2248,6 +2334,20 @@ def ilog(a: int, b: int = 2) -> int:
             high = mid
 
     return low - 1
+
+def is_power(n: int) -> bool:
+    """
+    Check if n is a perfect power (i.e. n = a^b for integers a > 1 and b > 1).
+    """
+    if n < 4:
+        return False
+
+    for b in range(2, ilog(n, 2) + 1):
+        a = iroot(n, b)
+        if pow(a, b) == n or pow(a + 1, b) == n:
+            return True
+
+    return False
 
 def binary_search(
     f: Callable[[int], int],

@@ -58,6 +58,10 @@ def problem_4(n=3):
     -----
     Assume that the solution x * y is a palindrome with 2n digits.
 
+    Consider the specific case of x = 10^n - 1, y = 10^n - 10^(n/2) + 1.
+    If n is even, then xy is the palindrome 999...000...999 with exactly n/2
+    leading and trailing 9s.
+
     Let k <= n be a lower bound on the # of consecutive digits of 9 that start and end
     the palindrome. This implies the following:
 
@@ -404,6 +408,9 @@ def problem_23(N=28123):
 
     Notes
     -----
+    It can be verified that every integer >= 20162 can be written as the sum of
+    two abundant numbers.
+
     Every multiple of 6 above 6 is abundant (since 6 is a perfect number).
 
     Then if a_k is the smallest abundant number congruent to k mod 6, it follows that
@@ -413,12 +420,12 @@ def problem_23(N=28123):
     for abundant sums. It can be verified that the only such sum is 40 = 20 + 20
     for k = 4 mod 6.
 
-    We can also verify that all abundant numbers below 28123 are 0, 2, 3, or 4 mod 6.
+    We can also verify that all abundant numbers below 20162 are 0, 2, 3, or 4 mod 6.
 
     Then if n = 1 mod 6 is an abundant sum, the two summands must 3 and 4 mod 6,
     and if n = 5 mod 6 is an abundant sum, the two summands must be 3 and 2 mod 6.
     """
-    N = min(N, 28123) # all numbers above 28123 are abundant sums
+    N = min(N, 20162) # all numbers >= 20162 are abundant sums
 
     # Calculate the sum of proper divisors for n = 1 ... N - 1
     proper_divisor_sums = e.aliquot_sum_range(N)
@@ -657,6 +664,9 @@ def problem_33():
     -----
     We are looking for fractions of the form (10a + x) / (10x + b) = a / b,
     where 0 < a < b < 10 and 0 < x < 10.
+
+    Let k = b - a > 0. Then this reduces to finding integer solutions to
+    9a^2 + 9ak - 9ax + kx = 0.
     """
     fractions = [
         (10 * a + x, 10 * x + b)
@@ -846,7 +856,7 @@ def problem_41():
     for n in (7, 4):
         for digits in permutations(range(n, 0, -1)):
             a = int(''.join(map(str, digits)))
-            if e.is_prime(a) and digits[0] != 0:
+            if e.is_prime(a):
                 return a
 
 def problem_42(path='data/problem_42.txt'):
@@ -981,30 +991,46 @@ def problem_47(n=4, k=4):
 
     Notes
     -----
-    If an integer a < L has k distinct prime factors, then for any prime
-    p | a we have the upper bound p < L / (p_1 * p_2 * ... * p_{k-1}),
-    where p_i is the i-th prime.
+    The number of distinct prime factors of n is given by the omega function ω(n).
     """
-    upper_bound = 200000 # initial guess
-    while True:
-        # Count the number of prime factors for each integer below the upper bound
-        max_factor = upper_bound // prod(e.primes(num=k-1))
-        num_prime_factors = [0] * upper_bound
-        for p in e.primes(high=max_factor):
-            num_prime_factors[p::p] = [count + 1 for count in num_prime_factors[p::p]]
+    def omega(block_size=1000):
+        yield from ((0, 0), (1, 0))
+        low, high = 2, 2 + block_size
+        small_primes = list(e.primes(high=isqrt(high)))
+        while True:
+            # Add more primes if needed
+            while (p := small_primes[-1]) <= isqrt(high - 1):
+                small_primes += e.primes(low=p+1, high=2*p)
 
-        # Search for consecutive integers with k prime factors
-        num_consecutive = 0
-        for i in range(prod(e.primes(num=k)), upper_bound):
-            if num_prime_factors[i] == k:
-                num_consecutive += 1
-            else:
-                num_consecutive = 0
-            if num_consecutive == n:
-                return i - n + 1
+            # Initialize block
+            num_prime_factors = [0] * block_size
+            residual = list(range(low, high)) # unfactored portion of each number
 
-        # Increase the upper bound and try again
-        upper_bound *= 10
+            # Factor out primes
+            for p in small_primes:
+                for idx in range((-low) % p, block_size, p):
+                    num_prime_factors[idx] += 1
+                    x = residual[idx] // p
+                    while x % p == 0:
+                        x //= p
+                    residual[idx] = x
+
+            # Any residual > 1 now contributes one more (large) prime factor
+            for i, x in enumerate(residual):
+                num_prime_factors[i] += (x > 1)
+
+            # Yield from this segment
+            yield from enumerate(num_prime_factors, start=low)
+            low, high = high, high + block_size
+
+    num_consecutive = 0
+    for i, num_factors in omega():
+        if num_factors == k:
+            num_consecutive += 1
+        else:
+            num_consecutive = 0
+        if num_consecutive == n:
+            return i - n + 1
 
 def problem_48(N=1000, k=10):
     """
@@ -1030,7 +1056,7 @@ def problem_49(n=4, k=3, exclude=(1487, 4817, 8147)):
 
         # Find arithmetic sequence
         for sequence in combinations(sorted(prime_permutations), k):
-            diffs = [a - b for a, b in zip(sequence[1:], sequence)]
+            diffs = [a - b for a, b in itertools.pairwise(sequence)]
             if diffs == [diffs[0]] * (k - 1) and sequence != exclude:
                 return ''.join(map(str, sequence))
 
@@ -1400,6 +1426,13 @@ def problem_61(n=8, k=4):
     each consecutive pair (x, y) the last k/2 digits of x match the first k/2
     digits of y, and each s-gonal type from s = 3 ... n, is represented by a
     different number in the set.
+
+    Notes
+    -----
+    We can create a graph with edges (i, x) -> (j, y) if the last k/2 digits of
+    i-gonal number x match the first k/2 digits of j-gonal number y.
+
+    Then the problem reduces to finding a cycle in this graph.
     """
     # Generate k-digit figurate numbers
     figurate_numbers = {
@@ -1407,8 +1440,7 @@ def problem_61(n=8, k=4):
         for s in range(3, n + 1)
     }
 
-    # Create a graph with edges (i, x) -> (j, y) if the last k/2 digits of
-    # i-gonal number x match the first k/2 digits of j-gonal number y
+    # Create a graph of figurate numbers
     graph = defaultdict(set)
     for i, j in permutations(figurate_numbers, 2):
         for x, y in itertools.product(figurate_numbers[i], figurate_numbers[j]):
@@ -1782,7 +1814,7 @@ def problem_79(path='data/problem_79.txt'):
         sequences = [line.strip() for line in file.readlines()]
         graph = defaultdict(set)
         for sequence in sequences:
-            for u, v in zip(sequence, sequence[1:]):
+            for u, v in itertools.pairwise(sequence):
                 graph[u].add(v)
 
     # Try to perform topological sort on the graph
@@ -2109,16 +2141,22 @@ def problem_88(K=12000):
     We can see that sum(A) = prod(A) = 2k, so it follows that 2k is an upper bound
     for the minimal product-sum number for sequence length k.
     """
-    def search(sequence_product, sequence_sum, sequence_length, sequence_max):
-        k = sequence_length + sequence_product - sequence_sum
-        if k <= K:
-            if sequence_product < minimal_product_sum_numbers[k]:
-                minimal_product_sum_numbers[k] = sequence_product
-            for a in range(sequence_max or 2, 2*K//sequence_product + 1):
-                search(sequence_product * a, sequence_sum + a, sequence_length + 1, a)
+    def find_next(state):
+        sequence_length, sequence_sum, sequence_product, sequence_max = state
+        if sequence_product == 1:
+            limit = 2*K
+        else:
+            limit = (K - sequence_length + sequence_sum - 1) // (sequence_product - 1)
+        for a in range(sequence_max or 2, limit + 1):
+            yield (sequence_length + 1, sequence_sum + a, sequence_product * a, a)
 
     minimal_product_sum_numbers = [2*K] * (K + 1)
-    search(1, 0, 0, None)
+    search = e.search([(0, 0, 1, None)], find_next)
+    for sequence_length, sequence_sum, sequence_product, _ in search:
+        k = sequence_length + sequence_product - sequence_sum
+        if sequence_product < minimal_product_sum_numbers[k]:
+            minimal_product_sum_numbers[k] = sequence_product
+
     return sum(set(minimal_product_sum_numbers[2:]))
 
 def problem_89(path='data/problem_89.txt'):
@@ -2590,7 +2628,6 @@ def problem_103(n=7):
         nonlocal best_set, best_sum
 
         if i == n:
-            # Only here do we pay for full constraint() including e.disjoint_subset_pairs
             if partial_sum < best_sum and condition_2(partial) and condition_1(partial):
                 best_set = tuple(partial)
                 best_sum = partial_sum
@@ -2598,14 +2635,16 @@ def problem_103(n=7):
 
         rem = n - i
 
-        # Global lower bound: fill remaining rem elements with prev_val+1, prev_val+2, ...
+        # Global lower bound:
+        # fill remaining rem elements with prev_val+1, prev_val+2, ...
         tail_min = rem * (prev_val + 1) + rem * (rem - 1) // 2
         if partial_sum + tail_min >= best_sum:
             return
 
         rem_after = rem - 1
         # Solve for x range from sum bound:
-        # total = partial_sum + x + rem_after*(x+1) + rem_after*(rem_after-1)//2 < best_sum
+        # total = partial_sum + x + rem_after*(x+1) + rem_after*(rem_after-1)//2
+        # < best_sum
         # => (rem_after+1)*x < best_sum - partial_sum - rem_after*(rem_after+1)//2
         numerator = best_sum - 1 - partial_sum - rem_after * (rem_after + 1) // 2
         if numerator <= 0:
@@ -2624,9 +2663,6 @@ def problem_103(n=7):
 
     dfs(0, 0, [], 0)
     return ''.join(map(str, best_set))
-
-
-    
 
 def problem_104(digits=123456789):
     """
@@ -2943,9 +2979,8 @@ def problem_124(N=100000, k=10000):
     Find the k-th positive integer not exceeding N when sorted by rad(n),
     where rad(n) is the product of distinct prime factors of n.
     """
-    rad = [1] * (N + 1)
-    for p in e.primes(high=N): rad[p::p] = [x * p for x in rad[p::p]]
-    return sorted(range(1, N + 1), key=lambda i: rad[i])[k - 1]
+    rad = e.radical_range(N + 1)
+    return sorted(range(1, N + 1), key=rad.__getitem__)[k - 1]
 
 def problem_125(N=10**8):
     """
@@ -2963,40 +2998,169 @@ def problem_125(N=10**8):
 
     return sum(values)
 
+def problem_126():
+    """
+    1st layer: 2ab + 2ac + 2bc
+    6+16+24+32+40
+    """
+
+def problem_127(N=120000):
+    """
+    Find the sum of all c < 120000 such that
+    a + b = c, gcd(a, b) = gcd(a, c) = gcd(b, c) = 1,
+    and rad(abc) < c.
+
+    Notes
+    -----
+    If a, b, c are pairwise coprime, then rad(abc) = rad(a) * rad(b) * rad(c).
+    Also note that gcd(a, b) = 1 and a + b = c implies gcd(a, c) = gcd(b, c) = 1.
+    """
+    def coprime_pairs(limit):
+        queue = deque([(1, 2)])
+        while queue:
+            a, b = queue.popleft()
+            yield a, b
+            if a + b < limit:
+                queue.append((a, a + b))
+                queue.append((b, a + b))
+ 
+    rad = e.radical_range(N)
+    idx = sorted(range(1, N), key=rad.__getitem__, reverse=True)
+    count, total = 0, 0
+
+    # for b, c in coprime_pairs(N):
+    #     a = c - b
+    #     if a >= b:
+    #         continue
+    #     if rad[a] * rad[b] * rad[c] < c:
+    #         total += c
+    #         count += 1
+    #         print(a, b, c)
+
+    for c in [17]:
+        for a in idx:
+            if a > c or gcd(a, c) != 1:
+                continue
+            b = c - a
+            print(a, b, c, rad[a] * rad[b] * rad[c])
+            if rad[a] * rad[b] * rad[c] < c:
+                total += c
+                count += 1
+                print(a, b, c)
+
+    # for c in range(1, N):
+    #     for a in range(1, c // 2):
+    #         if gcd(a, c) != 1:
+    #             continue
+    #         b = c - a
+    #         if rad[a] * rad[b] * rad[c] < c:
+    #             total += c
+    #             count += 1
+    #             print(a, b, c)
+
+    print("Count:", count)
+    return total
+
+def problem_128(n=2000):
+    """
+    Find the 2000th tile in a hexagonal grid for which the difference
+    in prime factors between it and its six neighbors is exactly three.
+
+    Notes
+    -----
+    Each layer n contains 6n tiles (except for layer 0, which has 1 tile),
+    and the total number of tiles up to and including layer n is given by
+    T(n) = 3n^2 + 3n + 2.
+
+    Each regular tile n has the neighbors n - 1 and n + 1, with a difference of 1.
+    Of the remaining four neighbors on different layers, it can be shown that two
+    of them will be odd and two will be even (and thus cannot be prime).
+
+    Therefore no tile n with both neighbors n + 1 and n - 1 prime can satisfy
+    PD(n) = 3, and thus we only need to consider the first and last tile in
+    each layer.
+    """
+    def get_neighbor_diffs(layer, position):
+        layer_count = 6 * layer
+        next_layer_count = layer_count + 6
+        prev_layer_count = layer_count - 6
+        up = position + position // layer # position in next layer
+        down = position - position // layer # position in previous layer
+
+        if position % layer == 0:
+            # Corner tile
+            return [
+                layer_count - 1 if position == 0 else 1, # right
+                position if position == layer_count - 1 else 1, # left
+                prev_layer_count + position - down % prev_layer_count, # down
+                layer_count + (up - 1) % (layer_count + 6) - position, # up left
+                layer_count + up % (layer_count + 6) - position, # up
+                layer_count + (up + 1) % (layer_count + 6) - position, # up right
+            ]
+        else:
+            # Edge tile
+            return [
+                layer_count - 1 if position == 0 else 1, # right
+                position if position == layer_count - 1 else 1, # left
+                prev_layer_count + position - (down - 1) % prev_layer_count, # down left
+                prev_layer_count + position - down % prev_layer_count, # down right
+                layer_count + up % next_layer_count - position, # up left
+                layer_count + (up + 1) % next_layer_count - position, # up right
+            ]
+
+    def PD(layer, position):
+        if layer == 0: return 3
+        if layer == 1: return (3, 2, 2, 0, 2, 2)[position]
+        return sum(map(e.is_prime, get_neighbor_diffs(layer, position)))
+
+    sequence = (
+        3*layer*layer - 3*layer + 1 + (layer > 0) + position
+        for layer in itertools.count()
+        for position in ((0, 6*layer - 1) if layer > 0 else (0,))
+        if PD(layer, position) == 3
+    )
+    return e.nth(sequence, n)
+
 def problem_129(N=1_000_000):
-    for n in itertools.count(start=2):
-        if gcd(n, 10) == 1:
-            k = e.multiplicative_order(10, n)
-            if k is not None and k > N:
-                print(k, n)
-                return n
+    """
+    Find the smallest integer n such that A(n) > N, where A(n)
+    is the smallest k such that R(k) = (10^k - 1) / 9 = 0 mod n.
+
+    Notes
+    -----
+    A(n) is the smallest k such that R(k) = 10^k - 1 / 9 = 0 mod n,
+    or equivalently 10^k = 1 mod 9n. This is exactly ord(10, 9n).
+
+    Given the multiplicative group of integers mod 9n, consider the
+    subgroup G of its residues such that x = 1 mod 9. Since 10 = 1 mod 9,
+    the cyclic group H generated by 10 is a subgroup of this subgroup,
+    and A(n) is the order of 10 in this subgroup.
+
+    Then A(n) = |H| <= |G| <= n.
+    """
+    for n in itertools.count(start=N):
+        if gcd(n, 10) == 1 and e.multiplicative_order(10, 9*n) > N:
+            return n
 
 def problem_130(m=25):
     """
+    Find the sum of the first m composite values of n such that
+    A(n) divides n - 1, where A(n) is defined the least k where
+    R(k) = (10^k - 1) / 9 = 0 mod n.
+
     Notes
     -----
-    Consider n > 5 with gcd(n, 10) = 1. Then we can infer that
-    R(k) = (10^k - 1) / 9 = 0 mod n if and only if 10^k = 1 mod n, which
-    is true exactly when A(n) = ord(10, n) divides k.
+    A(n) is the smallest k such that R(k) = 10^k - 1 / 9 = 0 mod n,
+    or equivalently 10^k = 1 mod 9n. This is exactly ord(10, 9n).
+    If A(n) divides n - 1, then we must have 10^(n - 1) = 1 mod 9n.
     """
-    # sum,count,n = 0,0,5
+    composites = (
+        n for n in itertools.count(start=7)
+        if not e.is_prime(n)
+        if pow(10, n - 1, 9 * n) == 1
+    )
 
-    # while count < m:
-    #     while e.is_prime(n): n += 2
-    #     if pow(10,n-1,9*n) == 1:            
-    #         sum,count = sum+n, count+1, 
-    #     n += 2
-    # return sum
-
-    total, count = 0, 0
-    for n in itertools.count(start=6):
-        if n % 3 == 0: continue
-        if gcd(n, 10) == 1:
-            k = e.multiplicative_order(10, n)
-            if (n - 1) % k == 0 and not e.is_prime(n):
-                total += n
-                count += 1
-                if count == m: return total
+    return sum(itertools.islice(composites, m))
 
 def problem_131(N=1_000_000):
     """
@@ -3045,8 +3209,8 @@ def problem_132(n=9, m=40):
     R(k) = (10^k - 1) / 9 = 0 mod p if and only if 10^k = 1 mod p, which
     is true exactly when ord(10, p) divides k.
     """
-    power = 10**n
-    primes = (p for p in e.primes(low=7) if power % e.multiplicative_order(10, p) == 0)
+    k = 10**n
+    primes = (p for p in e.primes(low=7) if k % e.multiplicative_order(10, p) == 0)
     return sum(islice(primes, m))
 
 def problem_133(N=100_000):
@@ -3091,10 +3255,10 @@ def problem_134(N=1_000_000):
     If we find the modular inverse b = (10^k)^(-1) (mod q),
     we can solve directly for a = b * (q - p) (mod q).
     """
-    primes = list(e.primes(low=5, high=e.next_prime(N)))
+    primes = e.primes(low=5, high=e.next_prime(N))
     return sum(
         p + a*t
-        for p, q in zip(primes, primes[1:])
+        for p, q in itertools.pairwise(primes)
         for t in (10**(e.digit_count(p)),)
         for a in (pow(t, -1, q) * (q - p) % q,)
     )
@@ -3237,7 +3401,7 @@ def problem_139(N=100_000_000):
             x, y = next(solutions)
             m, n = x + y, y
             a, b, c = m*m - n*n, 2*m*n, m*m + n*n
-            num_triples = N // (a + b + c)
+            num_triples = (N - 1) // (a + b + c)
             count += num_triples
             if num_triples == 0: break
 
@@ -3272,7 +3436,7 @@ def problem_142(n=3):
         #         x, y = (a + b) // 2, (a - b) // 2
         #         graph[x].add(y)
         #         graph[y].add(x)
-        
+
         #print("Graph", k, len(graph), sum(len(v) for v in graph.values()))
         return graph
 
@@ -3762,13 +3926,13 @@ def problem_407(N=10**7):
     TODO: write problem description and optimize
     """
     def M(n):
-        prime_powers = [p**e for p, e in e.prime_factorization(n).items()]
+        prime_powers = [p**e for p, e in e.prime_factorization(n)]
         roots = itertools.product((0, 1), repeat=len(prime_powers))
         return max(e.crt(a, prime_powers)[0] for a in roots)
 
     total = 0
     for n in range(2, N + 1):
-        print(n)
+        #print(n)
         total += M(n)
 
     return total
